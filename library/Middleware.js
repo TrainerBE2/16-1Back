@@ -12,9 +12,7 @@ const userAuth = (req, res, next) => {
     if (err) {
       return res.status(403).json({ message: 'Invalid token' });
     }
-    if (parseInt(decoded.userId, 10) !== parseInt(req.params.user_id, 10)) {
-      return res.status(403).json({ message: 'Not authorized' });
-    }
+    req.userId = decoded.userId;
     next();
   });
 };
@@ -226,7 +224,7 @@ const listAuth = (req, res, next) => {
 
       // Query to check if the user has the necessary privilege
       conn.query(
-        'SELECT * FROM tbl_collaborators WHERE board_id = ? AND user_id = ? AND privilege_id = 1',
+        'SELECT * FROM tbl_collaborators WHERE board_id = ? AND user_id = ? AND privilege_id IN (1, 2)',
         [boardId, userId],
         (err, results) => {
           if (err) {

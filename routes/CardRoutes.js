@@ -6,17 +6,18 @@ const router = express.Router();
 // GET
 router.get('/:list_card_id/comment', mid.cardAuth, card.getComment); // DONE
 router.get('/:list_card_id/member', mid.cardAuth, card.getMember); // DONE
+router.get('/:list_card_id/cover', mid.cardAuth, card.getCover); // DONE
 router.get('/:list_card_id/checklist', mid.cardAuth, card.getChecklist); // DONE
 router.get('/:list_card_id/label', mid.cardAuth, card.getLabel); // DONE
 router.get('/:list_card_id/attachments', mid.cardAuth, card.getAttachments); // DONE
-router.get('/:list_card_id/date', mid.cardAuth, card.getDate);
+router.get('/:list_card_id/date', mid.cardAuth, card.getDate);// DONE
 
 // POST
 router.post('/:list_card_id/comment', mid.cardEditAuth, card.addComment); // DONE
 router.post('/:list_card_id/member', mid.cardEditAuth, card.addCardMember); // DONE
 router.post('/:list_card_id/label', mid.cardEditAuth, card.addCardLabel); // DONE
 router.post('/:list_card_id/date', mid.cardEditAuth, card.addDate); // DONE
-router.post('/:list_card_id/checklist', mid.cardEditAuth, card.addChecklist);
+router.post('/:list_card_id/checklist', mid.cardEditAuth, card.addChecklist); // DONE
 router.post('/:list_card_id/cover', mid.cardEditAuth, card.addCover); // DONE
 router.post('/:list_card_id/attachments', mid.cardEditAuth, card.addAttachments); // DONE
 

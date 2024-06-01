@@ -17,8 +17,23 @@ const getCollaborator = (req, res) => {
   const { board_id } = req.params;
 
   const query = `
-    SELECT * FROM tbl_collaborators
-    WHERE board_id = ?;
+  SELECT 
+  c.id AS collaborator_id,
+  c.user_id,
+  u.username AS user_username,
+  u.email AS user_email,
+  c.privilege_id,
+  bp.name AS privilege_name,
+  c.created_at AS collaborator_created_at,
+  c.updated_at AS collaborator_updated_at
+FROM 
+  tbl_collaborators c
+LEFT JOIN 
+  tbl_users u ON c.user_id = u.id
+LEFT JOIN 
+  tbl_board_privileges bp ON c.privilege_id = bp.id
+WHERE 
+  c.board_id = ?;
   `;
 
   conn.query(query, [board_id], (err, results) => {

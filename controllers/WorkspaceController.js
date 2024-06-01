@@ -65,7 +65,31 @@ const getBoard = (req, res) => {
   const { workspace_id } = req.params;
 
   const query = `
-  SELECT * FROM tbl_boards WHERE workspace_id = ? AND visibility_id = 3
+  SELECT 
+  b.id AS board_id,
+  b.board_title,
+  b.owner_id,
+  u.username AS owner_username,
+  b.background,
+  bg.name AS background_name,
+  b.visibility_id,
+  bv.name AS visibility_name,
+  b.workspace_id,
+  ws.name AS workspace_name,
+  b.created_at AS board_created_at,
+  b.updated_at AS board_updated_at
+FROM 
+  tbl_boards b
+LEFT JOIN 
+  tbl_users u ON b.owner_id = u.id
+LEFT JOIN 
+  tbl_backgrounds bg ON b.background = bg.id
+LEFT JOIN 
+  tbl_board_visibilitys bv ON b.visibility_id = bv.id
+LEFT JOIN 
+  tbl_workspaces ws ON b.workspace_id = ws.id
+WHERE 
+  b.workspace_id = ? AND b.visibility_id = 3;
   `;
 
   db.query(query, [workspace_id], (err, results) => {
@@ -81,7 +105,23 @@ const getMember = (req, res) => {
   const { workspace_id } = req.params;
 
   const query = `
-  SELECT * FROM tbl_workspace_members WHERE workspace_id = ? 
+  SELECT 
+  wm.id AS membership_id,
+  wm.user_id,
+  u.username AS user_username,
+  u.email AS user_email,
+  wm.role_id,
+  wr.name AS role_name,
+  wm.created_at AS membership_created_at,
+  wm.updated_at AS membership_updated_at
+FROM 
+  tbl_workspace_members wm
+LEFT JOIN 
+  tbl_users u ON wm.user_id = u.id
+LEFT JOIN 
+  tbl_workspace_roles wr ON wm.role_id = wr.id
+WHERE 
+  wm.workspace_id = ?;
   `;
 
   db.query(query, [workspace_id], (err, results) => {

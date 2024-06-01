@@ -1,14 +1,44 @@
 const conn = require('../library/conn');
 
-const getCardChild = (req, res) => {
+const getCover = (req, res) => {
+  const list_card_id = req.params.list_card_id;
 
+  const query = `
+  SELECT lcc.*, tu.username, tu.email
+  FROM tbl_list_card_covers AS lcc
+  JOIN tbl_users AS tu ON lcc.adder_id = tu.id
+  WHERE lcc.list_card_id = ?;  
+  `;
+
+  conn.query(query, [list_card_id], (err, result) => {
+    if (err) {
+      return res.status(500).send(err);
+    }
+    res.status(200).json(result);
+  });
 };
 
 const getComment = (req, res) => {
   const list_card_id = req.params.list_card_id;
 
   const query = `
-    SELECT * FROM tbl_list_card_comments WHERE list_card_id = ?;
+  SELECT 
+  c.id AS comment_id, 
+  c.list_card_id, 
+  c.comment, 
+  c.created_at AS comment_created_at, 
+  c.updated_at AS comment_updated_at,
+  u.id AS user_id,
+  u.email,
+  u.username
+FROM 
+  tbl_list_card_comments c
+JOIN 
+  tbl_users u
+ON 
+  c.userid = u.id
+WHERE 
+  c.list_card_id = ?;
   `;
 
   conn.query(query, [list_card_id], (err, result) => {
@@ -23,7 +53,26 @@ const getMember = (req, res) => {
   const list_card_id = req.params.list_card_id;
 
   const query = `
-    SELECT * FROM tbl_list_card_members WHERE list_card_id = ?;
+  SELECT 
+  lcm.id AS member_id,
+  lcm.list_card_id,
+  lcm.user_id,
+  u1.username AS member_username,
+  u1.email AS member_email,
+  lcm.created_at AS member_created_at,
+  lcm.updated_at AS member_updated_at,
+  lcm.adder_id,
+  u2.username AS adder_username,
+  u2.email AS adder_email
+FROM 
+  tbl_list_card_members lcm
+JOIN 
+  tbl_users u1 ON lcm.user_id = u1.id
+LEFT JOIN 
+  tbl_users u2 ON lcm.adder_id = u2.id
+WHERE 
+  lcm.list_card_id = ?;
+
   `;
 
   conn.query(query, [list_card_id], (err, result) => {
@@ -38,7 +87,24 @@ const getChecklist = (req, res) => {
   const list_card_id = req.params.list_card_id;
 
   const query = `
-    SELECT * FROM tbl_list_card_checklists WHERE list_card_id = ?;
+  SELECT 
+  lcc.id AS checklist_id,
+  lcc.list_card_id,
+  lcc.title AS checklist_title,
+  lcc.status_id,
+  lcs.name AS status_name,
+  lcc.adder_id,
+  u.username AS adder_username,
+  lcc.created_at AS checklist_created_at,
+  lcc.updated_at AS checklist_updated_at
+FROM 
+  tbl_list_card_checklists AS lcc
+LEFT JOIN 
+  tbl_list_card_status AS lcs ON lcc.status_id = lcs.id
+LEFT JOIN 
+  tbl_users AS u ON lcc.adder_id = u.id
+WHERE 
+  lcc.list_card_id = ?;
   `;
 
   conn.query(query, [list_card_id], (err, result) => {
@@ -53,7 +119,21 @@ const getLabel = (req, res) => {
   const list_card_id = req.params.list_card_id;
 
   const query = `
-    SELECT * FROM tbl_list_card_labels WHERE list_card_id = ?;
+  SELECT 
+  lcl.id AS label_id,
+  lcl.list_card_id,
+  lcl.color,
+  lcl.title AS label_title,
+  lcl.created_at AS label_created_at,
+  lcl.updated_at AS label_updated_at,
+  u.username AS adder_username
+FROM 
+  tbl_list_card_labels AS lcl
+LEFT JOIN 
+  tbl_users AS u ON lcl.adder_id = u.id
+WHERE 
+  lcl.list_card_id = ?;
+
   `;
 
   conn.query(query, [list_card_id], (err, result) => {
@@ -161,14 +241,14 @@ const addCardLabel = (req, res) => {
 };
 
 const addChecklist = (req, res) => {
-  const { title } = req.body;
+  const { title, adder_id } = req.body; 
   const list_card_id = req.params.list_card_id;
   const query = `
-    INSERT INTO tbl_list_card_checklists (list_card_id, title)
-    VALUES (?, ?);
+    INSERT INTO tbl_list_card_checklists (list_card_id, title, adder_id)
+    VALUES (?, ?, ?);
   `;
 
-  conn.query(query, [list_card_id, title], (err, result) => {
+  conn.query(query, [list_card_id, title, adder_id], (err, result) => {
     if (err) {
       return res.status(500).send(err);
     }
@@ -179,6 +259,19 @@ const addChecklist = (req, res) => {
 const getDate = (req, res) => {
   const list_card_id = req.params.list_card_id;
 
+  const query = `
+  SELECT u.username AS adder_username, u.email AS adder_email, lc.adder_id, lc.deadline, lc.created_at, lc.updated_at
+  FROM tbl_users u
+  JOIN tbl_list_card_dates lc ON u.id = lc.adder_id
+  WHERE lc.list_card_id = ?;  
+  `;
+
+  conn.query(query, [list_card_id], (err, result) => {
+    if (err) {
+      return res.status(500).send(err);
+    }
+    res.status(200).json(result);
+  });
 };
 
 const archiveCard = (req, res) => {
@@ -454,7 +547,7 @@ const deleteChecklist = (req, res) => {
 
 const addCover = (req, res) => {
   const { list_card_id } = req.params;
-  const { cover } = req.body;
+  const { cover ,adder_id } = req.body;
 
   if (!cover) {
     return res.status(400).json({ message: 'Cover URL is required' });
@@ -475,11 +568,11 @@ const addCover = (req, res) => {
 
     // Proceed to insert the new cover if no existing cover is found
     const insertQuery = `
-      INSERT INTO tbl_list_card_covers (list_card_id, cover) 
-      VALUES (?, ?);
+      INSERT INTO tbl_list_card_covers (list_card_id, cover , adder_id ) 
+      VALUES (?, ? , ?);
     `;
 
-    const values = [list_card_id, cover];
+    const values = [list_card_id, cover, adder_id ];
 
     conn.query(insertQuery, values, (err, result) => {
       if (err) {
@@ -489,7 +582,6 @@ const addCover = (req, res) => {
     });
   });
 };
-
 
 const changeCover = (req, res) => {
   const { list_card_id } = req.params;
@@ -657,7 +749,7 @@ const getAttachments = (req, res) => {
 module.exports = {
   getAttachments, getDate, deleteDate,
   addCover, changeCover, deleteCover, addAttachments, deleteAttachments,
-  getCardChild, getComment, getChecklist, getMember, getLabel, deleteCard,
+  getCover, getComment, getChecklist, getMember, getLabel, deleteCard,
   addCardLabel, addDate, addChecklist, deleteChecklist, changeChecklist,
   archiveCard, changeTitle, addComment, changeComment, deleteComment,
   setChecklistDone, setChecklistOnTheWay, changeDate, changeLabel,

@@ -4,10 +4,34 @@ const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const getUserWorkspace = (req, res) => {
-  const { user_id } = req.params;
+  const user_id = req.userId;
   const query = `
-    SELECT * FROM tbl_workspace_members
-    WHERE user_id = ?;
+  SELECT 
+  wm.id AS membership_id,
+  wm.workspace_id,
+  wm.role_id,
+  ws.name AS workspace_name,
+  ws.type_id,
+  wt.name AS workspace_type,
+  ws.visibility_id,
+  wv.name AS workspace_visibility,
+  r.name AS role_name,
+  wm.created_at AS membership_created_at,
+  wm.updated_at AS membership_updated_at
+FROM 
+  tbl_workspace_members wm
+JOIN 
+  tbl_workspaces ws ON wm.workspace_id = ws.id
+JOIN 
+  tbl_roles r ON wm.role_id = r.id
+JOIN 
+  tbl_workspace_types wt ON ws.type_id = wt.id
+JOIN 
+  tbl_workspace_visibilitys wv ON ws.visibility_id = wv.id
+JOIN 
+  tbl_users u ON wm.user_id = u.id
+WHERE 
+  wm.user_id = ?;
   `;
 
   conn.query(query, [user_id], (err, results) => {
@@ -19,12 +43,43 @@ const getUserWorkspace = (req, res) => {
 };
 
 const getUserBoard = (req, res) => {
-  const { user_id } = req.params;
-
+  const user_id = req.userId;
   const query = `
-    SELECT * FROM tbl_boards
-    WHERE owner_id = ? OR id IN (
-      SELECT board_id FROM tbl_collaborators WHERE user_id = ?
+  SELECT 
+    b.id AS board_id,
+    b.board_title,
+    b.background,
+    bg.name AS background_name,
+    b.visibility_id,
+    bv.name AS board_visibility,
+    b.workspace_id,
+    ws.name AS workspace_name,
+    b.owner_id,
+    c.privilege_id,
+    bp.name AS privilege_name,
+    b.created_at AS board_created_at,
+    b.updated_at AS board_updated_at
+FROM 
+    tbl_boards b
+LEFT JOIN 
+    tbl_backgrounds bg ON b.background = bg.id
+LEFT JOIN 
+    tbl_board_visibilitys bv ON b.visibility_id = bv.id
+LEFT JOIN 
+    tbl_workspaces ws ON b.workspace_id = ws.id
+LEFT JOIN 
+    tbl_users u ON b.owner_id = u.id
+LEFT JOIN 
+    tbl_collaborators c ON b.id = c.board_id
+LEFT JOIN 
+    tbl_users cu ON c.user_id = cu.id
+LEFT JOIN 
+    tbl_board_privileges bp ON c.privilege_id = bp.id
+WHERE 
+    b.owner_id = ? OR b.id IN (
+        SELECT board_id 
+        FROM tbl_collaborators 
+        WHERE user_id = ?
     );
   `;
 
@@ -37,7 +92,7 @@ const getUserBoard = (req, res) => {
 };
 
 const getStarredBoard = (req, res) => {
-  const { user_id } = req.params;
+  const user_id = req.userId;
   const query = `
   SELECT 
   b.id AS board_id, 
@@ -64,11 +119,35 @@ WHERE
 };
 
 const getInvite = (req, res) => {
-  const { user_id } = req.params;
+  const user_id = req.userId;
 
   const query = `
-    SELECT * FROM tbl_workspace_invitations
-    WHERE invited_user_id = ?;
+  SELECT 
+  wi.id AS invitation_id,
+  wi.inviter_user_id,
+  i.username AS inviter_user_name,
+  wi.workspace_id,
+  ws.name AS workspace_name,
+  ws.type_id,
+  wt.name AS workspace_type,
+  ws.visibility_id,
+  wv.name AS workspace_visibility,
+  wi.created_at AS invitation_created_at,
+  wi.updated_at AS invitation_updated_at
+FROM 
+  tbl_workspace_invitations wi
+JOIN 
+  tbl_users iu ON wi.invited_user_id = iu.id
+JOIN 
+  tbl_users i ON wi.inviter_user_id = i.id
+JOIN 
+  tbl_workspaces ws ON wi.workspace_id = ws.id
+JOIN 
+  tbl_workspace_types wt ON ws.type_id = wt.id
+JOIN 
+  tbl_workspace_visibilitys wv ON ws.visibility_id = wv.id
+WHERE 
+  wi.invited_user_id = ?; 
   `;
 
   conn.query(query, [user_id], (err, results) => {
@@ -80,8 +159,26 @@ const getInvite = (req, res) => {
 };
 
 const getUserById = (req, res) => {
-  const { user_id } = req.params;
-  conn.query('SELECT * FROM tbl_users WHERE id = ?', [user_id], (err, result) => {
+  const user_id = req.userId;
+  conn.query(`
+  SELECT 
+    u.id AS user_id,
+    u.email,
+    u.username,
+    u.bio,
+    u.created_at AS user_created_at,
+    u.updated_at AS user_updated_at,
+    sr.role_id,
+    r.name AS role_name
+FROM 
+    tbl_users u
+LEFT JOIN 
+    tbl_system_roles sr ON u.id = sr.user_id
+LEFT JOIN 
+    tbl_roles r ON sr.role_id = r.id
+WHERE 
+    u.id = ?;
+  `, [user_id], (err, result) => {
     if (err) {
       return res.status(500).send(err);
     }
@@ -113,7 +210,7 @@ const loginUser = (req, res) => {
 
       const accessToken = jwt.sign({ userId: user.id, email: email }, process.env.JWT_SECRET, { expiresIn: '4h' });
 
-      res.json({ accessToken });
+      res.json({ accessToken, userId: user.id });
     });
   });
 };
@@ -127,7 +224,7 @@ const getUserActivity = (req, res) => {
 };
 
 const getRecentBoard = (req, res) => {
-  const { user_id } = req.params;
+  const user_id = req.userId;
   const query = `
   SELECT 
   b.id AS board_id, 
@@ -156,7 +253,6 @@ WHERE
 
 const createUser = async (req, res) => {
   const { email, password, username } = req.body;
-  console.log(req.body);
 
   const checkUserQuery = 'SELECT email FROM tbl_users WHERE email = ?';
   conn.query(checkUserQuery, [email], async (err, results) => {
@@ -233,14 +329,13 @@ const refuseInvitation = (req, res) => {
 };
 
 const changePassword = async (req, res) => {
-  const { user_id } = req.params;
+  const user_id = req.userId;
   const { old_password, new_password } = req.body;
 
   if (!user_id || !old_password || !new_password) {
     return res.status(400).json({ message: 'User ID, old password, and new password are required' });
   }
 
-  // Query to get the current hashed password
   const getPasswordQuery = 'SELECT password FROM tbl_users WHERE id = ?';
   conn.query(getPasswordQuery, [user_id], async (err, results) => {
     if (err) {
@@ -274,7 +369,7 @@ const changePassword = async (req, res) => {
 };
 
 const changeUsername = (req, res) => {
-  const { user_id } = req.params;
+  const user_id = req.userId;
   const { username } = req.body;
 
   const query = `
@@ -295,7 +390,7 @@ const changeUsername = (req, res) => {
 };
 
 const changeEmail = (req, res) => {
-  const { user_id } = req.params;
+  const user_id = req.userId;
   const { email } = req.body;
 
   const query = `
@@ -316,7 +411,7 @@ const changeEmail = (req, res) => {
 };
 
 const changeBio = (req, res) => {
-  const { user_id } = req.params;
+  const user_id = req.userId;
   const { bio } = req.body;
 
   const query = `

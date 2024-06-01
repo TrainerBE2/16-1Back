@@ -5,8 +5,24 @@ const getCard = (req, res) => {
   const { list_id } = req.params;
 
   const query = `
-    SELECT * FROM tbl_list_cards
-    WHERE list_id = ?;
+    SELECT 
+      lc.id AS card_id, 
+      lc.title, 
+      lc.list_id, 
+      lc.archived_status_id, 
+      ascol.name AS archived_status_name, 
+      lc.created_at AS card_created_at, 
+      lc.updated_at AS card_updated_at,
+      lc.description, 
+      lc.order_number
+    FROM 
+      tbl_list_cards lc
+    LEFT JOIN 
+      tbl_list_card_archived_status ascol 
+    ON 
+      lc.archived_status_id = ascol.id
+    WHERE 
+      lc.list_id = ?;
   `;
 
   conn.query(query, [list_id], (err, results) => {
@@ -16,6 +32,8 @@ const getCard = (req, res) => {
     res.status(200).json(results);
   });
 };
+
+
 
 const changeOrder = (req, res) => {
   const { list_id } = req.params;
@@ -119,7 +137,6 @@ const addCard = (req, res) => {
     res.status(201).json({ message: 'Card added successfully', cardId: result.insertId });
   });
 };
-
 
 const changeCard = (req, res) => {
   const { card_id } = req.params;
@@ -265,7 +282,6 @@ const permanentDeleteList = (req, res) => {
     executeQuery(0);
   });
 };
-
 
 module.exports = {
   addCard,
