@@ -1,15 +1,153 @@
 const conn = require('../library/conn');
 
+const GrantCollaboratorEdit = (req, res) => {
+  const { board_id, user_id } = req.params;
+  const query = `
+    UPDATE tbl_collaborators
+    SET privilege_id = 2
+    WHERE board_id = ? AND user_id = ?;
+  `;
+
+  conn.query(query, [board_id, user_id], (err, result) => {
+    if (err) {
+      return res.status(500).send(err);
+    }
+    if (result.affectedRows === 0) {
+      return res.status(404).send('Collaborator not found or no update needed');
+    }
+    res.status(200).json({ message: 'Collaborator privilege updated successfully' });
+  });
+};
+
 const getBoardById = (req, res) => {
   const { board_id } = req.params;
-  conn.query('SELECT * FROM tbl_boards WHERE id = ?', [board_id], (err, result) => {
+  const user_id = req.userId; 
+
+  const checkExistenceQuery = `
+    SELECT \`id\` FROM \`tbl_recents_boards\` 
+    WHERE \`user_id\` = ? AND \`board_id\` = ?
+  `;
+
+  const updateTimestampQuery = `
+    UPDATE \`tbl_recents_boards\` 
+    SET \`updated_at\` = current_timestamp() 
+    WHERE \`id\` = ?
+  `;
+
+  const insertQuery = `
+    INSERT INTO \`tbl_recents_boards\` (\`user_id\`, \`board_id\`, \`created_at\`, \`updated_at\`) 
+    VALUES (?, ?, current_timestamp(), current_timestamp())
+  `;
+
+  const countQuery = `
+    SELECT COUNT(*) as count FROM \`tbl_recents_boards\` 
+    WHERE \`user_id\` = ?
+  `;
+
+  const deleteOldestQuery = `
+    DELETE FROM \`tbl_recents_boards\` 
+    WHERE \`id\` = (
+      SELECT \`id\` FROM \`tbl_recents_boards\` 
+      WHERE \`user_id\` = ? 
+      ORDER BY \`created_at\` ASC 
+      LIMIT 1
+    )
+  `;
+
+  const fetchBoardDetails = (board_id, user_id, res) => {
+    const query = `
+      SELECT
+        b.*,
+        u.username AS owner_username,
+        bv.name AS visibility_name,
+        bg.name AS background_name,
+        w.name AS workspace_name,
+        CASE WHEN s.user_id IS NULL THEN FALSE ELSE TRUE END AS is_starred
+      FROM
+        tbl_boards b
+        LEFT JOIN tbl_users u ON b.owner_id = u.id
+        LEFT JOIN tbl_board_visibilitys bv ON b.visibility_id = bv.id
+        LEFT JOIN tbl_backgrounds bg ON b.background = bg.id
+        LEFT JOIN tbl_workspaces w ON b.workspace_id = w.id
+        LEFT JOIN tbl_starred_boards s ON b.id = s.board_id AND s.user_id = ?
+      WHERE
+        b.id = ?;
+    `;
+
+    conn.query(query, [user_id, board_id], (err, result) => {
+      if (err) {
+        return res.status(500).send(err);
+      }
+      if (result.length === 0) {
+        return res.status(404).send('Board not found');
+      }
+      res.status(200).send(result);
+    });
+  };
+
+  conn.query(checkExistenceQuery, [user_id, board_id], (err, existenceResult) => {
+    if (err) {
+      return res.status(500).send(err);
+    }
+    if (existenceResult.length === 0) {
+      conn.query(insertQuery, [user_id, board_id], (err, insertResult) => {
+        if (err) {
+          return res.status(500).send(err);
+        }
+        conn.query(countQuery, [user_id], (err, countResult) => {
+          if (err) {
+            return res.status(500).send(err);
+          }
+          if (countResult[0].count > MAX_RECENT_BOARDS) {
+            conn.query(deleteOldestQuery, [user_id], (err, deleteResult) => {
+              if (err) {
+                return res.status(500).send(err);
+              }
+              fetchBoardDetails(board_id, user_id, res);
+            });
+          } else {
+            fetchBoardDetails(board_id, user_id, res);
+          }
+        });
+      });
+    } else {
+      conn.query(updateTimestampQuery, [existenceResult[0].id], (err, updateResult) => {
+        if (err) {
+          return res.status(500).send(err);
+        }
+        fetchBoardDetails(board_id, user_id, res);
+      });
+    }
+  });
+};
+
+
+const fetchBoardDetails = (board_id, res) => {
+  const query = `
+    SELECT
+      b.*,
+      u.username AS owner_username,
+      bv.name AS visibility_name,
+      bg.name AS background_name,
+      w.name AS workspace_name
+    FROM
+      tbl_boards b
+      LEFT JOIN tbl_users u ON b.owner_id = u.id
+      LEFT JOIN tbl_board_visibilitys bv ON b.visibility_id = bv.id
+      LEFT JOIN tbl_backgrounds bg ON b.background = bg.id
+      LEFT JOIN tbl_workspaces w ON b.workspace_id = w.id
+    WHERE
+      b.id = ?;
+  `;
+
+  conn.query(query, [board_id], (err, result) => {
     if (err) {
       return res.status(500).send(err);
     }
     if (result.length === 0) {
       return res.status(404).send('Board not found');
     }
-    res.status(200).json(result[0]);
+    res.status(200).send(result);
   });
 };
 
@@ -84,6 +222,7 @@ const deleteBoard = (req, res) => {
     { sql: 'DELETE FROM tbl_list_card_dates WHERE list_card_id IN (SELECT id FROM tbl_list_cards WHERE list_id IN (SELECT id FROM tbl_lists WHERE board_id = ?))', values: [board_id] },
     { sql: 'DELETE FROM tbl_list_card_labels WHERE list_card_id IN (SELECT id FROM tbl_list_cards WHERE list_id IN (SELECT id FROM tbl_lists WHERE board_id = ?))', values: [board_id] },
     { sql: 'DELETE FROM tbl_list_card_members WHERE list_card_id IN (SELECT id FROM tbl_list_cards WHERE list_id IN (SELECT id FROM tbl_lists WHERE board_id = ?))', values: [board_id] },
+    { sql: 'DELETE FROM tbl_user_activitys WHERE list_card_id IN (SELECT id FROM tbl_list_cards WHERE list_id IN (SELECT id FROM tbl_lists WHERE board_id = ?))', values: [board_id] },
     { sql: 'DELETE FROM tbl_list_cards WHERE list_id IN (SELECT id FROM tbl_lists WHERE board_id = ?)', values: [board_id] },
     { sql: 'DELETE FROM tbl_lists WHERE board_id = ?', values: [board_id] },
     { sql: 'DELETE FROM tbl_collaborators WHERE board_id = ?', values: [board_id] },
@@ -125,14 +264,15 @@ const deleteBoard = (req, res) => {
 };
 
 
+
 const starBoard = (req, res) => {
-  const { user_id, board_id } = req.body;
+  const { board_id } = req.body;
   const checkQuery = `
     SELECT * FROM tbl_starred_boards 
     WHERE user_id = ? AND board_id = ?;
   `;
 
-  conn.query(checkQuery, [user_id, board_id], (checkErr, checkResult) => {
+  conn.query(checkQuery, [req.userId, board_id], (checkErr, checkResult) => {
     if (checkErr) {
       return res.status(500).send(checkErr);
     }
@@ -146,88 +286,12 @@ const starBoard = (req, res) => {
       VALUES (?, ?);
     `;
 
-    conn.query(insertQuery, [user_id, board_id], (insertErr, result) => {
+    conn.query(insertQuery, [req.userId, board_id], (insertErr, result) => {
       if (insertErr) {
         return res.status(500).send(insertErr);
       }
       res.status(201).json({ message: 'Board starred successfully', insertId: result.insertId });
     });
-  });
-};
-
-const setRecent = (req, res) => {
-  const { user_id, board_id } = req.body;
-
-  const checkExistenceQuery = `
-    SELECT \`id\` FROM \`tbl_recents_boards\` 
-    WHERE \`user_id\` = ? AND \`board_id\` = ?
-  `;
-
-  const updateTimestampQuery = `
-    UPDATE \`tbl_recents_boards\` 
-    SET \`updated_at\` = current_timestamp() 
-    WHERE \`id\` = ?
-  `;
-
-  const insertQuery = `
-    INSERT INTO \`tbl_recents_boards\` (\`user_id\`, \`board_id\`, \`created_at\`, \`updated_at\`) 
-    VALUES (?, ?, current_timestamp(), current_timestamp())
-  `;
-
-  const countQuery = `
-    SELECT COUNT(*) as count FROM \`tbl_recents_boards\` 
-    WHERE \`user_id\` = ?
-  `;
-
-  const deleteOldestQuery = `
-    DELETE FROM \`tbl_recents_boards\` 
-    WHERE \`id\` = (
-      SELECT \`id\` FROM \`tbl_recents_boards\` 
-      WHERE \`user_id\` = ? 
-      ORDER BY \`created_at\` ASC 
-      LIMIT 1
-    )
-  `;
-
-  conn.query(checkExistenceQuery, [user_id, board_id], (err, result) => {
-    if (err) {
-      return res.status(500).send(err);
-    }
-
-    if (result.length > 0) {
-      const id = result[0].id;
-      conn.query(updateTimestampQuery, [id], (err, result) => {
-        if (err) {
-          return res.status(500).send(err);
-        }
-        res.status(200).send('Recent board updated.');
-      });
-    } else {
-      conn.query(insertQuery, [user_id, board_id], (err, result) => {
-        if (err) {
-          return res.status(500).send(err);
-        }
-
-        conn.query(countQuery, [user_id], (err, result) => {
-          if (err) {
-            return res.status(500).send(err);
-          }
-
-          const count = result[0].count;
-          if (count > 7) {
-            conn.query(deleteOldestQuery, [user_id], (err, result) => {
-              if (err) {
-                return res.status(500).send(err);
-              }
-
-              res.status(201).send('Recent board added and oldest one removed.');
-            });
-          } else {
-            res.status(201).send('Recent board added.');
-          }
-        });
-      });
-    }
   });
 };
 
@@ -281,33 +345,20 @@ const getBoardPrivilege = (req, res) => {
 const addList = (req, res) => {
   const { title } = req.body;
   const { board_id } = req.params;
-  const getMaxOrderQuery = `
-    SELECT MAX(\`order\`) as maxOrder
-    FROM tbl_lists
-    WHERE board_id = ?
-  `;
 
   const insertQuery = `
-    INSERT INTO tbl_lists (title, \`order_number\`, board_id)
-    VALUES (?, ?, ?);
+    INSERT INTO tbl_lists (title, board_id)
+    VALUES (?, ?);
   `;
 
-  conn.query(getMaxOrderQuery, [board_id], (err, result) => {
+  conn.query(insertQuery, [title, board_id], (err, result) => {
     if (err) {
-      return res.status(500).send(err);
+      return res.status(500).json({ error: err.message });
     }
-
-    const maxOrder = result[0].maxOrder !== null ? result[0].maxOrder : 0;
-    const newOrder = maxOrder + 1;
-
-    conn.query(insertQuery, [title, newOrder, board_id], (err, result) => {
-      if (err) {
-        return res.status(500).send(err);
-      }
-      res.status(201).json({ message: 'List added successfully', insertId: result.insertId });
-    });
+    res.status(201).json({ message: 'List added successfully', insertId: result.insertId });
   });
 };
+
 
 module.exports = {
   getCollaborator,
@@ -316,9 +367,9 @@ module.exports = {
   getBoardById,
   updateBoard,
   deleteBoard,
-  setRecent,
   starBoard,
   getBoardVisibility,
   getBoardPrivilege,
-  changeBoardTitle
+  changeBoardTitle,
+  GrantCollaboratorEdit
 };

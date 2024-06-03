@@ -13,8 +13,7 @@ const getCard = (req, res) => {
       ascol.name AS archived_status_name, 
       lc.created_at AS card_created_at, 
       lc.updated_at AS card_updated_at,
-      lc.description, 
-      lc.order_number
+      lc.description
     FROM 
       tbl_list_cards lc
     LEFT JOIN 
@@ -179,7 +178,6 @@ const changeCard = (req, res) => {
       return res.status(500).send(err);
     }
 
-    console.log(query)
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: 'Card not found' });
     }
@@ -247,6 +245,7 @@ const permanentDeleteList = (req, res) => {
     { sql: 'DELETE FROM tbl_list_card_dates WHERE list_card_id IN (SELECT id FROM tbl_list_cards WHERE list_id = ?)', values: [list_id] },
     { sql: 'DELETE FROM tbl_list_card_labels WHERE list_card_id IN (SELECT id FROM tbl_list_cards WHERE list_id = ?)', values: [list_id] },
     { sql: 'DELETE FROM tbl_list_card_members WHERE list_card_id IN (SELECT id FROM tbl_list_cards WHERE list_id = ?)', values: [list_id] },
+    { sql: 'DELETE FROM tbl_user_activitys WHERE list_card_id IN (SELECT id FROM tbl_list_cards WHERE list_id = ?)', values: [list_id] },
     { sql: 'DELETE FROM tbl_list_cards WHERE list_id = ?', values: [list_id] },
     { sql: 'DELETE FROM tbl_lists WHERE id = ?', values: [list_id] }
   ];
@@ -282,6 +281,7 @@ const permanentDeleteList = (req, res) => {
     executeQuery(0);
   });
 };
+
 
 module.exports = {
   addCard,

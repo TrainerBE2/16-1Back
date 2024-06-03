@@ -10,7 +10,7 @@ const userAuth = (req, res, next) => {
 
   jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
     if (err) {
-      return res.status(403).json({ message: 'Invalid token' });
+      return res.status(403).json({ message: 'Invalid token userAuth' });
     }
     req.userId = decoded.userId;
     next();
@@ -22,14 +22,27 @@ const invAuth = (req, res, next) => {
   if (!token) {
     return res.status(401).json({ message: 'Access token is missing or invalid' });
   }
+
   jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
     if (err) {
       return res.status(403).json({ message: 'Invalid token' });
     }
-    if (parseInt(decoded.userId, 10) !== parseInt(req.body.invited_user_id, 10)) {
-      return res.status(403).json({ message: 'Not authorized' });
-    }
-    next();
+
+    const { invitation_id } = req.body;
+    conn.query('SELECT invited_user_id FROM tbl_workspace_invitations WHERE id = ?', [invitation_id], (error, results) => {
+      if (error) {
+        return res.status(500).json({ message: 'Database error' });
+      }
+      if (results.length === 0) {
+        return res.status(404).json({ message: 'Invitation not found' });
+      }
+      const invited_user_id = results[0].invited_user_id;
+      if (decoded.userId !== invited_user_id) {
+        return res.status(403).json({ message: 'Not authorized' });
+      }
+      next();
+      req.userId = decoded.userId
+    });
   });
 };
 
@@ -39,10 +52,11 @@ const Auth = (req, res, next) => {
     return res.status(401).json({ message: 'Access token is missing or invalid' });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET, (err) => {
+  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
     if (err) {
-      return res.status(403).json({ message: 'Invalid token' });
+      return res.status(403).json({ message: 'Invalid token Auth' });
     }
+    req.userId = decoded.userId;
     next();
   });
 };
@@ -73,7 +87,7 @@ const boardAuth = (req, res, next) => {
         if (results.length === 0) {
           return res.status(403).json({ message: 'Not authorized' });
         }
-
+        req.userId = decoded.userId;
         next();
       }
     );
@@ -127,7 +141,7 @@ const boardCollaboratorsAuth = (req, res, next) => {
     const boardId = parseInt(req.params.board_id, 10);
 
     conn.query(
-      'SELECT * FROM tbl_collaborators WHERE board_id = ? AND user_id = ? AND privilege_id = 2',
+      'SELECT * FROM tbl_collaborators WHERE board_id = ? AND user_id = ? AND privilege_id IN (2, 3);',
       [boardId, userId],
       (err, results) => {
         if (err) {
@@ -138,7 +152,7 @@ const boardCollaboratorsAuth = (req, res, next) => {
         if (results.length === 0) {
           return res.status(403).json({ message: 'Not authorized hehe' });
         }
-
+        req.userId = userId;
         next();
       }
     );
@@ -157,9 +171,11 @@ const listEditAuth = (req, res, next) => {
     }
 
     const userId = parseInt(decoded.userId, 10);
-    const listId = parseInt(req.params.list_id, 10); // Assuming the list ID is in req.params.list_id
+    const listId = parseInt(req.params.list_id, 10);
+    if (isNaN(listId)) {
+      return res.status(400).json({ message: 'Invalid list ID' });
+    }
 
-    // Query to get the board_id from tbl_lists using listId
     conn.query('SELECT board_id FROM tbl_lists WHERE id = ?', [listId], (err, results) => {
       if (err) {
         console.error('Error querying database:', err);
@@ -169,13 +185,10 @@ const listEditAuth = (req, res, next) => {
       if (results.length === 0) {
         return res.status(404).json({ message: 'List not found' });
       }
-
       const boardId = results[0].board_id;
-      console.log(boardId)
 
-      // Query to check if the user has the necessary privilege
       conn.query(
-        'SELECT * FROM tbl_collaborators WHERE board_id = ? AND user_id = ? AND privilege_id = 2',
+        'SELECT * FROM tbl_collaborators WHERE board_id = ? AND user_id = ? AND privilege_id IN (2, 3)',
         [boardId, userId],
         (err, results) => {
           if (err) {
@@ -194,6 +207,7 @@ const listEditAuth = (req, res, next) => {
   });
 };
 
+
 const listAuth = (req, res, next) => {
   const token = req.header('Authorization')?.split(' ')[1];
   if (!token) {
@@ -206,9 +220,8 @@ const listAuth = (req, res, next) => {
     }
 
     const userId = parseInt(decoded.userId, 10);
-    const listId = parseInt(req.params.list_id, 10); // Assuming the list ID is in req.params.list_id
+    const listId = parseInt(req.params.list_id, 10); 
 
-    // Query to get the board_id from tbl_lists using listId
     conn.query('SELECT board_id FROM tbl_lists WHERE id = ?', [listId], (err, results) => {
       if (err) {
         console.error('Error querying database:', err);
@@ -220,11 +233,9 @@ const listAuth = (req, res, next) => {
       }
 
       const boardId = results[0].board_id;
-      console.log(boardId)
 
-      // Query to check if the user has the necessary privilege
       conn.query(
-        'SELECT * FROM tbl_collaborators WHERE board_id = ? AND user_id = ? AND privilege_id IN (1, 2)',
+        'SELECT * FROM tbl_collaborators WHERE board_id = ? AND user_id = ? AND privilege_id IN (1, 2, 3)',
         [boardId, userId],
         (err, results) => {
           if (err) {
@@ -265,6 +276,7 @@ const workspaceAuth = (req, res, next) => {
       if (results.length === 0) {
         return res.status(403).json({ message: 'Not authorized' });
       }
+      req.userId = userId;
       next();
     });
   });
@@ -293,7 +305,6 @@ const workspaceAdminAuth = (req, res, next) => {
         res.status(400).json({ error: 'Invalid or missing workspace_id' });
         return;
     }
-    
     conn.query(
       'SELECT * FROM tbl_workspace_members WHERE workspace_id = ? AND user_id = ? AND (role_id = 1 OR role_id = 2)',
       [workspaceId, userId],
@@ -306,6 +317,7 @@ const workspaceAdminAuth = (req, res, next) => {
         if (results.length === 0) {
           return res.status(403).json({ message: 'Not authorized from' });
         }
+        req.userId = decoded.userId;
         next();
       }
     );
@@ -349,9 +361,10 @@ const cardAuth = (req, res, next) => {
         }
 
         const boardId = results[0].board_id;
+        console.log(boardId)
 
         conn.query(
-          'SELECT * FROM tbl_collaborators WHERE board_id = ? AND user_id = ? AND (privilege_id = 1 OR privilege_id = 2)',
+          'SELECT * FROM tbl_collaborators WHERE board_id = ? AND user_id = ? AND (privilege_id = 1 OR privilege_id = 2 OR privilege_id = 3)',
           [boardId, userId],
           (err, results) => {
             if (err) {
@@ -410,7 +423,7 @@ const cardEditAuth = (req, res, next) => {
         const boardId = results[0].board_id;
 
         conn.query(
-          'SELECT * FROM tbl_collaborators WHERE board_id = ? AND user_id = ? AND privilege_id = 2',
+          'SELECT * FROM tbl_collaborators WHERE board_id = ? AND user_id = ? AND (privilege_id = 2 OR privilege_id = 3)',
           [boardId, userId],
           (err, results) => {
             if (err) {
@@ -421,7 +434,8 @@ const cardEditAuth = (req, res, next) => {
             if (results.length === 0) {
               return res.status(403).json({ message: 'Not authorized' });
             }
-
+            req.userId = userId;
+            req.list_card_id = list_card_id;
             next();
           }
         );

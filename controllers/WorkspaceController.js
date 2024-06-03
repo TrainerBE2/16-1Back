@@ -1,33 +1,35 @@
 const db = require('../library/conn');
+const { addUserNotification } = require('../controllers/UserController');
 
 const createWorkspace = (req, res) => {
-  const { name, type_id, visibility_id, description, user_id } = req.body;
+  const { name, type_id, description } = req.body;
   const workspaceQuery = `
-    INSERT INTO tbl_workspaces (name, type_id, visibility_id, description)
-    VALUES (?, ?, ?, ?);
+    INSERT INTO tbl_workspaces (name, type_id, description)
+    VALUES (?, ?, ?);
   `;
-  db.query(workspaceQuery, [name, type_id, visibility_id, description], (err, result) => {
+
+  db.query(workspaceQuery, [name, type_id, description], (err, result) => {
     if (err) {
       return res.status(500).send(err);
     }
+
     const workspace_id = result.insertId;
-    setWorkspaceOwner(res, workspace_id, user_id);
+    const role_id = 1;
+    const memberQuery = `
+      INSERT INTO tbl_workspace_members (workspace_id, user_id, role_id)
+      VALUES (?, ?, ?);
+    `;
+
+    db.query(memberQuery, [workspace_id, req.userId, role_id], (err) => {
+      if (err) {
+        return res.status(500).send(err);
+      }
+      
+      res.status(201).json({ message: 'Workspace created successfully and owner set' });
+    });
   });
 };
 
-const setWorkspaceOwner = (res, workspace_id, user_id) => {
-  const role_id = 1;
-  const memberQuery = `
-    INSERT INTO tbl_workspace_members (workspace_id, user_id, role_id)
-    VALUES (?, ?, ?);
-  `;
-  db.query(memberQuery, [workspace_id, user_id, role_id], (err, result) => {
-    if (err) {
-      return res.status(500).send(err);
-    }
-    res.status(201).json({ message: 'Workspace created successfully and owner set' });
-  });
-};
 
 const getWorkspaceById = (req, res) => {
   const { workspace_id } = req.params;
@@ -38,17 +40,14 @@ const getWorkspaceById = (req, res) => {
       w.name AS workspace_name,
       w.type_id,
       t.name AS type_name,
-      w.visibility_id,
-      v.name AS visibility_name,
       w.description,
       w.created_at,
-      w.updated_at
+      w.updated_at,
+      (SELECT COUNT(*) FROM tbl_workspace_members WHERE workspace_id = w.id) AS member_count
     FROM 
       tbl_workspaces w
     JOIN 
       tbl_workspace_types t ON w.type_id = t.id
-    JOIN 
-      tbl_workspace_visibilitys v ON w.visibility_id = v.id
     WHERE 
       w.id = ?;
   `;
@@ -57,48 +56,58 @@ const getWorkspaceById = (req, res) => {
     if (err) {
       return res.status(500).send(err);
     }
-    res.status(200).json(results);
+    if (results.length === 0) {
+      return res.status(404).send({ message: 'Workspace not found' });
+    }
+    res.status(200).json(results[0]);
   });
 };
 
+
 const getBoard = (req, res) => {
   const { workspace_id } = req.params;
-
   const query = `
-  SELECT 
-  b.id AS board_id,
-  b.board_title,
-  b.owner_id,
-  u.username AS owner_username,
-  b.background,
-  bg.name AS background_name,
-  b.visibility_id,
-  bv.name AS visibility_name,
-  b.workspace_id,
-  ws.name AS workspace_name,
-  b.created_at AS board_created_at,
-  b.updated_at AS board_updated_at
-FROM 
-  tbl_boards b
-LEFT JOIN 
-  tbl_users u ON b.owner_id = u.id
-LEFT JOIN 
-  tbl_backgrounds bg ON b.background = bg.id
-LEFT JOIN 
-  tbl_board_visibilitys bv ON b.visibility_id = bv.id
-LEFT JOIN 
-  tbl_workspaces ws ON b.workspace_id = ws.id
-WHERE 
-  b.workspace_id = ? AND b.visibility_id = 3;
+    SELECT 
+      b.id AS board_id,
+      b.board_title,
+      b.owner_id,
+      u.username AS owner_username,
+      b.background,
+      bg.name AS background_name,
+      b.visibility_id,
+      bv.name AS visibility_name,
+      b.workspace_id,
+      ws.name AS workspace_name,
+      b.created_at AS board_created_at,
+      b.updated_at AS board_updated_at,
+      CASE
+        WHEN sb.user_id IS NOT NULL THEN true
+        ELSE false
+      END AS is_starred
+    FROM 
+      tbl_boards b
+    LEFT JOIN 
+      tbl_users u ON b.owner_id = u.id
+    LEFT JOIN 
+      tbl_backgrounds bg ON b.background = bg.id
+    LEFT JOIN 
+      tbl_board_visibilitys bv ON b.visibility_id = bv.id
+    LEFT JOIN 
+      tbl_workspaces ws ON b.workspace_id = ws.id
+    LEFT JOIN 
+      tbl_starred_boards sb ON b.id = sb.board_id AND sb.user_id = ?
+    WHERE 
+      b.workspace_id = ? AND b.visibility_id = 2;
   `;
 
-  db.query(query, [workspace_id], (err, results) => {
+  db.query(query, [req.userId, workspace_id], (err, results) => {
     if (err) {
       return res.status(500).send(err);
     }
     res.status(200).json(results);
   });
 };
+
 
 
 const getMember = (req, res) => {
@@ -133,23 +142,59 @@ WHERE
 };
 
 const inviteUser = (req, res) => {
-  const { invited_user_id, inviter_user_id, workspace_id } = req.body;
+  const { invited_user_id, workspace_id } = req.body;
 
-  const query = `
+  const insertInvitationQuery = `
     INSERT INTO tbl_workspace_invitations (invited_user_id, inviter_user_id, workspace_id)
     VALUES (?, ?, ?);
   `;
 
-  db.query(query, [invited_user_id, inviter_user_id, workspace_id], (err, result) => {
+  const getUsernameQuery = `
+    SELECT username FROM tbl_users WHERE id = ?;
+  `;
+
+  const getWorkspaceNameQuery = `
+    SELECT name FROM tbl_workspaces WHERE id = ?;
+  `;
+
+  db.query(insertInvitationQuery, [invited_user_id, req.userId, workspace_id], (err, result) => {
     if (err) {
       return res.status(500).send(err);
     }
-    res.status(201).json({ message: 'User invited successfully', insertId: result.insertId });
+
+    db.query(getUsernameQuery, [req.userId], (err, userResult) => {
+      if (err) {
+        return res.status(500).send(err);
+      }
+
+      const username = userResult[0]?.username;
+
+      db.query(getWorkspaceNameQuery, [workspace_id], (err, workspaceResult) => {
+        if (err) {
+          return res.status(500).send(err);
+        }
+
+        const workspaceName = workspaceResult[0]?.name;
+
+        if (username && workspaceName) {
+          const notification = `You're invited by ${username} to join ${workspaceName}`;
+          db.query(`INSERT INTO tbl_user_notifications (user_id, notification) VALUES (?, ?)`, [invited_user_id, notification], (err, notificationResult) => {
+            if (err) {
+              return res.status(500).send(err);
+            }
+            res.status(201).json({ message: 'User invited successfully', insertId: result.insertId });
+          });
+        } else {
+          res.status(500).send('Failed to retrieve username or workspace name');
+        }
+      });
+    });
   });
 };
 
+
 const acceptWorkspaceInvitation = (req, res) => {
-  const { invitation_id, invited_user_id } = req.body;
+  const { invitation_id } = req.body;
 
   const checkQuery = `
     SELECT * FROM tbl_workspace_invitations
@@ -167,68 +212,58 @@ const acceptWorkspaceInvitation = (req, res) => {
     const workspace_id = checkResult[0].workspace_id;
     const role_id = 3;
 
-    const insertQuery = `
-      INSERT INTO tbl_workspace_members (workspace_id, user_id, role_id, created_at, updated_at)
-      VALUES (?, ?, ?, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP());
+    const insertMemberQuery = `
+      INSERT INTO tbl_workspace_members (workspace_id, user_id, role_id)
+      VALUES (?, ?, ?);
     `;
 
-    db.query(insertQuery, [workspace_id, invited_user_id, role_id], (insertErr) => {
+    db.query(insertMemberQuery, [workspace_id, req.userId, role_id], (insertErr) => {
       if (insertErr) {
         return res.status(500).send(insertErr);
       }
 
-      const deleteQuery = `
-        DELETE FROM tbl_workspace_invitations
-        WHERE id = ?;
-      `;
+      const selectBoardsQuery = 'SELECT * FROM `tbl_boards` WHERE `visibility_id` = 3 AND `workspace_id` = ?';
 
-      db.query(deleteQuery, [invitation_id], (deleteErr, deleteResult) => {
-        if (deleteErr) {
-          return res.status(500).send(deleteErr);
+      db.query(selectBoardsQuery, [workspace_id], (err, boards) => {
+        if (err) {
+          return res.status(500).send(err);
         }
-        res.status(200).json({ message: 'Invitation accepted successfully' });
+
+        const privilegeId = 1;
+        let insertCollaboratorPromises = boards.map((board) => {
+          return new Promise((resolve, reject) => {
+            const insertCollaboratorQuery = `
+              INSERT INTO \`tbl_collaborators\` (\`user_id\`, \`board_id\`, \`privilege_id\`)
+              VALUES (?, ?, ?)
+            `;
+            db.query(insertCollaboratorQuery, [req.userId, board.id, privilegeId], (collabErr) => {
+              if (collabErr) {
+                return reject(collabErr);
+              }
+              resolve();
+            });
+          });
+        });
+
+        Promise.all(insertCollaboratorPromises)
+          .then(() => {
+            const deleteQuery = `
+              DELETE FROM tbl_workspace_invitations
+              WHERE id = ?;
+            `;
+
+            db.query(deleteQuery, [invitation_id], (deleteErr) => {
+              if (deleteErr) {
+                return res.status(500).send(deleteErr);
+              }
+              res.status(200).json({ message: 'Invitation accepted successfully' });
+            });
+          })
+          .catch((collabErr) => {
+            res.status(500).send(collabErr);
+          });
       });
     });
-  });
-};
-
-const changeVisibilitytoPublic = (req, res) => {
-  const { workspace_id } = req.params;
-
-  const query = `
-    UPDATE tbl_workspaces
-    SET visibility_id = 2
-    WHERE id = ?;
-  `;
-
-  db.query(query, [workspace_id], (err, result) => {
-    if (err) {
-      return res.status(500).send(err);
-    }
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: 'Workspace not found' });
-    }
-    res.status(200).json({ message: 'Workspace visibility updated to public successfully' });
-  });
-};
-
-const changeVisibilitytoPrivate = (req, res) => {
-  const { workspace_id } = req.params;
-
-  const query = `
-    UPDATE tbl_workspaces
-    SET visibility_id = 1
-    WHERE id = ?;
-  `;
-
-  db.query(query, [workspace_id], (err, result) => {
-    if (err) {
-      return res.status(500).send(err);
-    }
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: 'Workspace not found' });
-    }
-    res.status(200).json({ message: 'Workspace visibility updated to private successfully' });
   });
 };
 
@@ -315,20 +350,7 @@ const promoteMember = (req, res) => {
   });
 };
 
-const getWorkspaceVisibility = (req, res) => {
-  const query = `
-    SELECT * FROM tbl_workspace_visibilitys;
-  `;
-
-  db.query(query, (err, results) => {
-    if (err) {
-      return res.status(500).send(err);
-    }
-    res.status(200).json(results);
-  });
-};
-
-const getWorkspaceType = (req, res) => {
+const getWorkspaceType = (req,res) => {
   const query = `
     SELECT * FROM tbl_workspace_types;
   `;
@@ -342,21 +364,36 @@ const getWorkspaceType = (req, res) => {
 };
 
 const createBoard = (req, res) => {
-  const { owner_id, board_title, visibility, background } = req.body;
+  const { board_title, visibility, background } = req.body;
   const { workspace_id } = req.params;
 
-  const query = `
+  const query1 = `
     INSERT INTO tbl_boards (owner_id, board_title, background, visibility_id, workspace_id)
     VALUES (?, ?, ?, ?, ?);
   `;
 
-  db.query(query, [owner_id, board_title, background, visibility, workspace_id], (err, result) => {
+  db.query(query1, [req.userId, board_title, background, visibility, workspace_id], (err, result) => {
     if (err) {
       return res.status(500).send(err);
     }
-    res.status(201).send(`Board added with ID: ${result.insertId}`);
+
+    const boardId = result.insertId;
+
+    const query2 = `
+      INSERT INTO tbl_collaborators (user_id, board_id, privilege_id)
+      VALUES (?, ?, ?);
+    `;
+
+    db.query(query2, [req.userId, boardId, 3], (err, result) => {
+      if (err) {
+        return res.status(500).send(err);
+      }
+
+      res.status(201).send(`Board added with ID: ${boardId}`);
+    });
   });
 };
+
 
 const deleteWorkspace = (req, res) => {
   const { workspace_id } = req.params;
@@ -371,11 +408,13 @@ const deleteWorkspace = (req, res) => {
     { sql: 'DELETE FROM tbl_list_card_dates WHERE list_card_id IN (SELECT id FROM tbl_list_cards WHERE list_id IN (SELECT id FROM tbl_lists WHERE board_id IN (SELECT id FROM tbl_boards WHERE workspace_id = ?)))', values: [workspace_id] },
     { sql: 'DELETE FROM tbl_list_card_labels WHERE list_card_id IN (SELECT id FROM tbl_list_cards WHERE list_id IN (SELECT id FROM tbl_lists WHERE board_id IN (SELECT id FROM tbl_boards WHERE workspace_id = ?)))', values: [workspace_id] },
     { sql: 'DELETE FROM tbl_list_card_members WHERE list_card_id IN (SELECT id FROM tbl_list_cards WHERE list_id IN (SELECT id FROM tbl_lists WHERE board_id IN (SELECT id FROM tbl_boards WHERE workspace_id = ?)))', values: [workspace_id] },
+    { sql: 'DELETE FROM tbl_user_activitys WHERE list_card_id IN (SELECT id FROM tbl_list_cards WHERE list_id IN (SELECT id FROM tbl_lists WHERE board_id IN (SELECT id FROM tbl_boards WHERE workspace_id = ?)))', values: [workspace_id] },
     { sql: 'DELETE FROM tbl_list_cards WHERE list_id IN (SELECT id FROM tbl_lists WHERE board_id IN (SELECT id FROM tbl_boards WHERE workspace_id = ?))', values: [workspace_id] },
     { sql: 'DELETE FROM tbl_lists WHERE board_id IN (SELECT id FROM tbl_boards WHERE workspace_id = ?)', values: [workspace_id] },
-    { sql: 'DELETE FROM tbl_boards WHERE workspace_id = ?', values: [workspace_id] },
+    { sql: 'DELETE FROM tbl_collaborators WHERE board_id IN (SELECT id FROM tbl_boards WHERE workspace_id = ?)', values: [workspace_id] },
     { sql: 'DELETE FROM tbl_recents_boards WHERE board_id IN (SELECT id FROM tbl_boards WHERE workspace_id = ?)', values: [workspace_id] },
     { sql: 'DELETE FROM tbl_starred_boards WHERE board_id IN (SELECT id FROM tbl_boards WHERE workspace_id = ?)', values: [workspace_id] },
+    { sql: 'DELETE FROM tbl_boards WHERE workspace_id = ?', values: [workspace_id] },
     { sql: 'DELETE FROM tbl_workspaces WHERE id = ?', values: [workspace_id] }
   ];
 
@@ -412,6 +451,8 @@ const deleteWorkspace = (req, res) => {
 };
 
 
+
+
 module.exports = {
   getBoard,
   getMember,
@@ -421,12 +462,9 @@ module.exports = {
   createWorkspace,
   getWorkspaceById,
   inviteUser,
-  changeVisibilitytoPublic,
-  changeVisibilitytoPrivate,
   changeType,
   changeDescription,
   promoteMember,
-  getWorkspaceVisibility,
   getWorkspaceType,
   changeName
 };

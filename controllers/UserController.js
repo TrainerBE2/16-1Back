@@ -13,8 +13,6 @@ const getUserWorkspace = (req, res) => {
   ws.name AS workspace_name,
   ws.type_id,
   wt.name AS workspace_type,
-  ws.visibility_id,
-  wv.name AS workspace_visibility,
   r.name AS role_name,
   wm.created_at AS membership_created_at,
   wm.updated_at AS membership_updated_at
@@ -26,8 +24,6 @@ JOIN
   tbl_roles r ON wm.role_id = r.id
 JOIN 
   tbl_workspace_types wt ON ws.type_id = wt.id
-JOIN 
-  tbl_workspace_visibilitys wv ON ws.visibility_id = wv.id
 JOIN 
   tbl_users u ON wm.user_id = u.id
 WHERE 
@@ -94,20 +90,21 @@ WHERE
 const getStarredBoard = (req, res) => {
   const user_id = req.userId;
   const query = `
-  SELECT 
-  b.id AS board_id, 
-  b.board_title, 
-  b.workspace_id, 
-  w.name AS workspace_name
-FROM 
-  tbl_starred_boards sb
-JOIN 
-  tbl_boards b ON sb.board_id = b.id
-JOIN 
-  tbl_workspaces w ON b.workspace_id = w.id
-WHERE 
-  sb.user_id = ?;
-
+    SELECT 
+      b.id AS board_id, 
+      b.board_title, 
+      b.workspace_id, 
+      w.name AS workspace_name
+    FROM 
+      tbl_starred_boards sb
+    JOIN 
+      tbl_boards b ON sb.board_id = b.id
+    JOIN 
+      tbl_workspaces w ON b.workspace_id = w.id
+    WHERE 
+      sb.user_id = ?
+    ORDER BY 
+      sb.updated_at DESC;
   `;
 
   conn.query(query, [user_id], (err, result) => {
@@ -130,8 +127,6 @@ const getInvite = (req, res) => {
   ws.name AS workspace_name,
   ws.type_id,
   wt.name AS workspace_type,
-  ws.visibility_id,
-  wv.name AS workspace_visibility,
   wi.created_at AS invitation_created_at,
   wi.updated_at AS invitation_updated_at
 FROM 
@@ -144,8 +139,6 @@ JOIN
   tbl_workspaces ws ON wi.workspace_id = ws.id
 JOIN 
   tbl_workspace_types wt ON ws.type_id = wt.id
-JOIN 
-  tbl_workspace_visibilitys wv ON ws.visibility_id = wv.id
 WHERE 
   wi.invited_user_id = ?; 
   `;
@@ -208,7 +201,7 @@ const loginUser = (req, res) => {
         return res.status(401).json({ message: 'Invalid email or password' });
       }
 
-      const accessToken = jwt.sign({ userId: user.id, email: email }, process.env.JWT_SECRET, { expiresIn: '4h' });
+      const accessToken = jwt.sign({ userId: user.id, email: email }, process.env.JWT_SECRET, { expiresIn: '12h' });
 
       res.json({ accessToken, userId: user.id });
     });
@@ -216,40 +209,114 @@ const loginUser = (req, res) => {
 };
 
 const getUserNotification = (req, res) => {
+  const query = `SELECT * FROM tbl_user_notifications WHERE user_id = ?`;
+  
+  conn.query(query, [req.userId], (err, result) => {
+    if (err) {
+      return res.status(500).json({ error: 'Internal Server Error' });
+    }
+    res.status(200).json(result);
+  });
+};
 
+const deleteUserNotification = (req, res) => {
+  const query = `DELETE FROM tbl_user_notifications WHERE user_id = ?`;
+  
+  conn.query(query, [req.userId], (err, result) => {
+    if (err) {
+      console.error('Database query error:', err);
+      return res.status(500).json({ error: 'Internal Server Error' });
+    }
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'No notifications found for the given user.' });
+    }
+    
+    res.status(200).json({ message: 'Notifications deleted successfully.' });
+  });
 };
 
 const getUserActivity = (req, res) => {
-
-};
-
-const getRecentBoard = (req, res) => {
-  const user_id = req.userId;
   const query = `
   SELECT 
-  b.id AS board_id, 
-  b.board_title, 
-  b.workspace_id, 
-  w.name AS workspace_name
-FROM 
-  tbl_recents_boards rb
-JOIN 
-  tbl_boards b ON rb.board_id = b.id
-JOIN 
-  tbl_workspaces w ON b.workspace_id = w.id
-WHERE 
-  rb.user_id = ?;
-
+    ua.id,
+    ua.action_id,
+    a.name AS action_name,
+    ua.list_card_id,
+    lc.title AS list_card_title,
+    ua.detailed,
+    ua.created_at,
+    ua.updated_at
+  FROM 
+    tbl_user_activitys ua
+  JOIN 
+    tbl_user_action_on_boards a ON ua.action_id = a.id
+  JOIN
+    tbl_list_cards lc ON ua.list_card_id = lc.id
+  WHERE 
+    ua.user_id = ?
+  ORDER BY 
+    ua.created_at DESC;
   `;
 
-  conn.query(query, [user_id], (err, result) => {
+  conn.query(query, req.userId, (err, result) => { 
     if (err) {
       return res.status(500).send(err);
     }
     res.status(200).json(result);
   });
-
 };
+
+
+const addUserActivity = (user_id, action_id, list_card_id, detailed) => {
+  const sql = `
+    INSERT INTO tbl_user_activitys (id, user_id, action_id, list_card_id, detailed)
+    VALUES (NULL, ?, ?, ?, ?);
+  `;
+  
+  conn.query(sql, [user_id, action_id, list_card_id, detailed], (err, results) => {
+    if (err) {
+      console.error('Error inserting user activity:', err);
+      return;
+    }
+  });
+};
+
+const getRecentBoard = (req, res) => {
+  const user_id = req.userId;
+  const query = `
+    SELECT 
+      b.id AS board_id, 
+      b.board_title, 
+      b.workspace_id, 
+      w.name AS workspace_name,
+      (SELECT 
+          IF(COUNT(*) > 0, 1, 0) 
+        FROM 
+          tbl_starred_boards sb 
+        WHERE 
+          sb.user_id = ? AND sb.board_id = b.id
+      ) AS is_starred
+    FROM 
+      tbl_recents_boards rb
+    JOIN 
+      tbl_boards b ON rb.board_id = b.id
+    JOIN 
+      tbl_workspaces w ON b.workspace_id = w.id
+    WHERE 
+      rb.user_id = ?
+    ORDER BY 
+      rb.updated_at DESC;
+  `;
+
+  conn.query(query, [user_id, user_id], (err, result) => {
+    if (err) {
+      return res.status(500).send(err);
+    }
+    res.status(200).json(result);
+  });
+};
+
 
 const createUser = async (req, res) => {
   const { email, password, username } = req.body;
@@ -441,6 +508,8 @@ module.exports = {
   removeStar,
   changeEmail,
   changeUsername,
+  deleteUserNotification,
   changeBio,
-  refuseInvitation
+  refuseInvitation,
+  addUserActivity,
 };

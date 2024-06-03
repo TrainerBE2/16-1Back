@@ -1,4 +1,5 @@
 const conn = require('../library/conn');
+const { addUserActivity, addUserNotification } = require('../controllers/UserController');
 
 const getCover = (req, res) => {
   const list_card_id = req.params.list_card_id;
@@ -8,6 +9,41 @@ const getCover = (req, res) => {
   FROM tbl_list_card_covers AS lcc
   JOIN tbl_users AS tu ON lcc.adder_id = tu.id
   WHERE lcc.list_card_id = ?;  
+  `;
+
+  conn.query(query, [list_card_id], (err, result) => {
+    if (err) {
+      return res.status(500).send(err);
+    }
+    res.status(200).json(result);
+  });
+};
+
+const getCardActivity = (req, res) => {
+  const list_card_id = req.params.list_card_id;
+
+  const query = `
+  SELECT 
+    ua.id,
+    ua.user_id,
+    u.email AS user_email,
+    u.username AS user_username,
+    ua.action_id,
+    a.name AS action_name,
+    ua.list_card_id,
+    ua.detailed,
+    ua.created_at,
+    ua.updated_at
+  FROM 
+    tbl_user_activitys ua
+  JOIN 
+    tbl_users u ON ua.user_id = u.id
+  JOIN 
+    tbl_user_action_on_boards a ON ua.action_id = a.id
+  WHERE 
+    ua.list_card_id = ?
+  ORDER BY 
+    ua.created_at DESC;
   `;
 
   conn.query(query, [list_card_id], (err, result) => {
@@ -145,14 +181,14 @@ WHERE
 };
 
 const addComment = (req, res) => {
-  const { comment, user_id } = req.body;
+  const { comment } = req.body;
   const list_card_id = req.params.list_card_id;
   const query = `
       INSERT INTO tbl_list_card_comments (list_card_id, comment,userid)
       VALUES (?, ? ,? );
     `;
 
-  conn.query(query, [list_card_id, comment, user_id], (err, result) => {
+  conn.query(query, [list_card_id, comment, req.userId], (err, result) => {
     if (err) {
       return res.status(500).send(err);
     }
@@ -161,7 +197,7 @@ const addComment = (req, res) => {
 };
 
 const addDate = (req, res) => {
-  const { deadline, adder_id } = req.body;
+  const { deadline } = req.body;
   const list_card_id = req.params.list_card_id;
   const checkQuery = `
     SELECT * FROM tbl_list_card_dates 
@@ -181,20 +217,20 @@ const addDate = (req, res) => {
       VALUES (?, ?, ?);
     `;
 
-    conn.query(insertQuery, [list_card_id, deadline, adder_id], (insertErr, result) => {
+    conn.query(insertQuery, [list_card_id, deadline, req.userId], (insertErr, result) => {
       if (insertErr) {
         return res.status(500).send(insertErr);
       }
+      addUserActivity(req.userId, 3, list_card_id, 'added date deadline into the card')
       res.status(201).json({ message: 'Date added successfully', insertId: result.insertId });
     });
   });
 };
 
 const addCardMember = (req, res) => {
-  const { user_id, adder_id } = req.body;
+  const { user_id } = req.body;
   const list_card_id = req.params.list_card_id;
 
-  // Check if the card member already exists
   const checkQuery = `
     SELECT * FROM tbl_list_card_members 
     WHERE list_card_id = ? AND user_id = ?;
@@ -205,53 +241,88 @@ const addCardMember = (req, res) => {
       return res.status(500).send(checkErr);
     }
 
-    // If the card member already exists, return a conflict status
     if (checkResult.length > 0) {
       return res.status(409).json({ message: 'Card member already exists' });
     }
 
-    // If the card member doesn't exist, insert it into the database
     const insertQuery = `
       INSERT INTO tbl_list_card_members (list_card_id, user_id, adder_id)
       VALUES (?, ?, ?);
     `;
 
-    conn.query(insertQuery, [list_card_id, user_id, adder_id], (insertErr, result) => {
+    conn.query(insertQuery, [list_card_id, user_id, req.userId], (insertErr, result) => {
       if (insertErr) {
         return res.status(500).send(insertErr);
       }
-      res.status(201).json({ message: 'Card member added successfully', insertId: result.insertId });
+
+      const getUsernamesQuery = `
+        SELECT u1.username as added_username, u2.username as adder_username, c.title as card_title
+        FROM tbl_users u1
+        JOIN tbl_users u2 ON u2.id = ?
+        JOIN tbl_list_cards c ON c.id = ?
+        WHERE u1.id = ?;
+      `;
+
+      conn.query(getUsernamesQuery, [req.userId, list_card_id, user_id], (userErr, userResult) => {
+        if (userErr) {
+          return res.status(500).send(userErr);
+        }
+
+        if (userResult.length === 0) {
+          return res.status(404).json({ message: 'User or card not found' });
+        }
+
+        const { added_username, adder_username, card_title } = userResult[0];
+        
+        addUserActivity(req.userId, 1, list_card_id, `added ${added_username} to card`);
+        const description = `You have been assigned by ${adder_username} to the card "${card_title}"`;
+        const query = `
+          INSERT INTO tbl_user_notifications (user_id, notification) 
+          VALUES (?, ?);
+        `;
+    
+        conn.query(query, [req.userId, description], (err, result) => {
+          if (err) {
+            return res.status(500).send(err);
+          }
+          res.status(201).json({ message: 'Card member added successfully', insertId: result.insertId });
+        });
+      });
     });
   });
 };
 
+
+
 const addCardLabel = (req, res) => {
-  const { color, title, adder_id } = req.body;
+  const { color, title } = req.body;
   const list_card_id = req.params.list_card_id;
-  const query = `
+  const queryInsertLabel = `
     INSERT INTO tbl_list_card_labels (list_card_id, color, title, adder_id)
-    VALUES (?, ?, ? , ?);
+    VALUES (?, ?, ?, ?);
   `;
-  conn.query(query, [list_card_id, color, title, adder_id], (err, result) => {
-    if (err) {
-      return res.status(500).send(err);
+  conn.query(queryInsertLabel, [list_card_id, color, title, req.userId], (errInsert, resultInsert) => {
+    if (errInsert) {
+      return res.status(500).send(errInsert);
     }
-    res.status(201).json({ message: 'Card label added successfully', insertId: result.insertId });
+    addUserActivity(req.userId, 2, list_card_id, `added label "${title}" to the card`);
+    res.status(201).json({ message: 'Card label added successfully', insertId: resultInsert.insertId });
   });
 };
 
 const addChecklist = (req, res) => {
-  const { title, adder_id } = req.body; 
+  const { title } = req.body;
   const list_card_id = req.params.list_card_id;
   const query = `
     INSERT INTO tbl_list_card_checklists (list_card_id, title, adder_id)
     VALUES (?, ?, ?);
   `;
 
-  conn.query(query, [list_card_id, title, adder_id], (err, result) => {
+  conn.query(query, [list_card_id, title, req.userId], (err, result) => {
     if (err) {
       return res.status(500).send(err);
     }
+    addUserActivity(req.userId, 4, list_card_id, `added checklist "${title}" to the card`);
     res.status(201).json({ message: 'Checklist added successfully', insertId: result.insertId });
   });
 };
@@ -317,43 +388,69 @@ const changeTitle = (req, res) => {
 
 const setChecklistDone = (req, res) => {
   const { id } = req.params;
-
-  const query = `
-    UPDATE tbl_list_card_checklists 
-    SET status_id = '2' 
-    WHERE id = ?;
-  `;
-
-  conn.query(query, [id], (err, result) => {
+  const selectQuery = 'SELECT title FROM tbl_list_card_checklists WHERE id = ?';
+  conn.query(selectQuery, [id], (err, selectResult) => {
     if (err) {
       return res.status(500).send(err);
     }
-    if (result.affectedRows === 0) {
+    if (selectResult.length === 0) {
       return res.status(404).json({ message: 'Checklist item not found' });
     }
-    res.status(200).json({ message: 'Checklist item set to done successfully' });
+
+    const title = selectResult[0].title;
+
+    const updateQuery = `
+      UPDATE tbl_list_card_checklists 
+      SET status_id = '2' 
+      WHERE id = ?;
+    `;
+    conn.query(updateQuery, [id], (err, updateResult) => {
+      if (err) {
+        return res.status(500).send(err);
+      }
+      if (updateResult.affectedRows === 0) {
+        return res.status(404).json({ message: 'Checklist item not found' });
+      }
+      addUserActivity(req.userId, 10, req.list_card_id, `change checklist "${title}" status to done`);
+      res.status(200).json({ message: 'Checklist item set to done successfully' });
+    });
   });
 };
+
 
 const setChecklistOnTheWay = (req, res) => {
   const { id } = req.params;
-
-  const query = `
-    UPDATE tbl_list_card_checklists 
-    SET status_id = '1' 
-    WHERE id = ?;
-  `;
-
-  conn.query(query, [id], (err, result) => {
+  const selectQuery = 'SELECT title FROM tbl_list_card_checklists WHERE id = ?';
+  conn.query(selectQuery, [id], (err, selectResult) => {
     if (err) {
       return res.status(500).send(err);
     }
-    if (result.affectedRows === 0) {
+    if (selectResult.length === 0) {
       return res.status(404).json({ message: 'Checklist item not found' });
     }
-    res.status(200).json({ message: 'Checklist item set to on the way successfully' });
+
+    const title = selectResult[0].title;
+
+    const updateQuery = `
+      UPDATE tbl_list_card_checklists 
+      SET status_id = '1' 
+      WHERE id = ?;
+    `;
+
+    conn.query(updateQuery, [id], (err, updateResult) => {
+      if (err) {
+        return res.status(500).send(err);
+      }
+      if (updateResult.affectedRows === 0) {
+        return res.status(404).json({ message: 'Checklist item not found' });
+      }
+
+      addUserActivity(req.userId, 10, req.list_card_id, `change checklist "${title}" status to on the way`);
+      res.status(200).json({ message: 'Checklist item set to on the way successfully' });
+    });
   });
 };
+
 
 const changeComment = (req, res) => {
   const { id } = req.params;
@@ -380,6 +477,10 @@ const changeDate = (req, res) => {
   const { id } = req.params;
   const { deadline } = req.body;
 
+  if (!deadline || isNaN(Date.parse(deadline))) {
+    return res.status(400).json({ message: 'Invalid deadline format' });
+  }
+
   const query = `
     UPDATE tbl_list_card_dates
     SET deadline = ?
@@ -388,14 +489,17 @@ const changeDate = (req, res) => {
 
   conn.query(query, [deadline, id], (err, result) => {
     if (err) {
-      return res.status(500).send(err);
+      console.error("Error updating date:", err);
+      return res.status(500).json({ message: 'Failed to update date' });
     }
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: 'Date not found' });
     }
+    addUserActivity(req.userId, 12, req.list_card_id, `updated date deadline to ${deadline}`);
     res.status(200).json({ message: 'Date updated successfully' });
   });
 };
+
 
 const deleteDate = (req, res) => {
   const { id } = req.params;
@@ -412,6 +516,7 @@ const deleteDate = (req, res) => {
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: 'Date not found' });
     }
+    addUserActivity(req.userId, 13, req.list_card_id, `removed date deadline`);
     res.status(200).json({ message: 'Date deleted successfully' });
   });
 };
@@ -420,52 +525,91 @@ const deleteDate = (req, res) => {
 const changeLabel = (req, res) => {
   const { id } = req.params;
   const { title, color } = req.body;
-  let query = 'UPDATE tbl_list_card_labels SET ';
-  let queryParams = [];
-  let updates = [];
-  if (title) {
-    updates.push('title = ?');
-    queryParams.push(title);
-  }
-  if (color) {
-    updates.push('color = ?');
-    queryParams.push(color);
-  }
-  if (updates.length === 0) {
-    return res.status(400).json({ message: 'No fields to update' });
-  }
-  query += updates.join(', ') + ' WHERE id = ?';
-  queryParams.push(id);
-
-  conn.query(query, queryParams, (err, result) => {
-    if (err) {
-      return res.status(500).send(err);
+  const selectQuery = 'SELECT title, color FROM `tbl_list_card_labels` WHERE `id` = ?';
+  conn.query(selectQuery, [id], (selectErr, selectResult) => {
+    if (selectErr) {
+      return res.status(500).send(selectErr);
     }
-    if (result.affectedRows === 0) {
+
+    if (selectResult.length === 0) {
       return res.status(404).json({ message: 'Label not found' });
     }
-    res.status(200).json({ message: 'Label updated successfully' });
+
+    const oldTitle = selectResult[0].title;
+    const oldColor = selectResult[0].color;
+
+    let updates = [];
+    let queryParams = [];
+    if (title) {
+      updates.push('title = ?');
+      queryParams.push(title);
+    }
+    if (color) {
+      updates.push('color = ?');
+      queryParams.push(color);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ message: 'No fields to update' });
+    }
+
+    let query = 'UPDATE tbl_list_card_labels SET ' + updates.join(', ') + ' WHERE id = ?';
+    queryParams.push(id);
+
+    conn.query(query, queryParams, (err, result) => {
+      if (err) {
+        return res.status(500).send(err);
+      }
+
+      let activityMessage = '';
+      if (title && color) {
+        activityMessage = `Updated label "${oldTitle}" (color: ${oldColor}) to "${title}" (color: ${color})`;
+      } else if (title && !color) {
+        activityMessage = `Updated label "${oldTitle}" to "${title}"`;
+      } else if (!title && color) {
+        activityMessage = `Updated label "${oldTitle}" color to "${color}"`;
+      }
+      addUserActivity(req.userId, 7, req.list_card_id, activityMessage);
+
+      res.status(200).json({ message: 'Label updated successfully' });
+    });
   });
 };
 
 const changeChecklist = (req, res) => {
   const { id } = req.params;
-  const { title, status_id } = req.body;
-
-  const query = `
-    UPDATE tbl_list_card_checklists
-    SET title = ?, status_id = ?, updated_at = CURRENT_TIMESTAMP()
-    WHERE id = ?;
+  const { title } = req.body;
+  const selectQuery = `
+    SELECT title, list_card_id FROM tbl_list_card_checklists WHERE id = ?;
   `;
 
-  conn.query(query, [title, status_id, id], (err, result) => {
+  conn.query(selectQuery, [id], (err, results) => {
     if (err) {
       return res.status(500).send(err);
     }
-    if (result.affectedRows === 0) {
+    if (results.length === 0) {
       return res.status(404).json({ message: 'Checklist not found' });
     }
-    res.status(200).json({ message: 'Checklist updated successfully' });
+
+    const oldTitle = results[0].title;
+    const listCardId = results[0].list_card_id;
+    const updateQuery = `
+      UPDATE tbl_list_card_checklists
+      SET title = ? WHERE id = ?;
+    `;
+
+    conn.query(updateQuery, [title, id], (err, result) => {
+      if (err) {
+        return res.status(500).send(err);
+      }
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: 'Checklist not found' });
+      }
+
+      addUserActivity(req.userId, 8, listCardId, `updated checklist "${oldTitle}" to "${title}"`);
+
+      res.status(200).json({ message: 'Checklist updated successfully' });
+    });
   });
 };
 
@@ -491,69 +635,132 @@ const deleteComment = (req, res) => {
 const removeCardMember = (req, res) => {
   const { id } = req.params;
 
-  const query = `
-    DELETE FROM tbl_list_card_members
-    WHERE id = ?;
+  const getCardMemberQuery = `
+    SELECT user_id, list_card_id FROM tbl_list_card_members WHERE id = ?;
   `;
 
-  conn.query(query, [id], (err, result) => {
-    if (err) {
-      return res.status(500).send(err);
+  conn.query(getCardMemberQuery, [id], (getCardMemberErr, cardMemberResult) => {
+    if (getCardMemberErr) {
+      return res.status(500).send(getCardMemberErr);
     }
-    if (result.affectedRows === 0) {
+
+    if (cardMemberResult.length === 0) {
       return res.status(404).json({ message: 'Member not found' });
     }
-    res.status(200).json({ message: 'Card member removed successfully' });
+
+    const { user_id, list_card_id } = cardMemberResult[0];
+
+    const getUsernameQuery = `
+      SELECT username FROM tbl_users WHERE id = ?;
+    `;
+
+    conn.query(getUsernameQuery, [user_id], (getUsernameErr, userResult) => {
+      if (getUsernameErr) {
+        return res.status(500).send(getUsernameErr);
+      }
+
+      if (userResult.length === 0) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+
+      const username = userResult[0].username;
+
+      const deleteQuery = `
+        DELETE FROM tbl_list_card_members WHERE id = ?;
+      `;
+
+      conn.query(deleteQuery, [id], (deleteErr, deleteResult) => {
+        if (deleteErr) {
+          return res.status(500).send(deleteErr);
+        }
+
+        if (deleteResult.affectedRows === 0) {
+          return res.status(404).json({ message: 'Member not found' });
+        }
+
+        addUserActivity(req.userId, 16, list_card_id, `removed ${username} from card`);
+        res.status(200).json({ message: 'Card member removed successfully' });
+      });
+    });
   });
 };
 
+
 const removeCardLabel = (req, res) => {
   const { id } = req.params;
-
-  const query = `
-    DELETE FROM tbl_list_card_labels
+  const querySelect = `
+    SELECT list_card_id, title 
+    FROM tbl_list_card_labels 
     WHERE id = ?;
   `;
 
-  conn.query(query, [id], (err, result) => {
+  conn.query(querySelect, [id], (err, result) => {
     if (err) {
       return res.status(500).send(err);
     }
-    if (result.affectedRows === 0) {
+    if (result.length === 0) {
       return res.status(404).json({ message: 'Label not found' });
     }
-    res.status(200).json({ message: 'Card label removed successfully' });
+
+    const { list_card_id, title } = result[0];
+    const queryDelete = `
+      DELETE FROM tbl_list_card_labels
+      WHERE id = ?;
+    `;
+
+    conn.query(queryDelete, [id], (err, result) => {
+      if (err) {
+        return res.status(500).send(err);
+      }
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: 'Label not found' });
+      }
+
+      addUserActivity(req.userId, 15, list_card_id, `removed label ${title} from card`);
+      res.status(200).json({ message: 'Card label removed successfully' });
+    });
   });
 };
 
 const deleteChecklist = (req, res) => {
   const { id } = req.params;
-
-  const query = `
-    DELETE FROM tbl_list_card_checklists
-    WHERE id = ?;
-  `;
-
-  conn.query(query, [id], (err, result) => {
+  const selectQuery = 'SELECT title FROM tbl_list_card_checklists WHERE id = ?';
+  conn.query(selectQuery, [id], (err, selectResult) => {
     if (err) {
       return res.status(500).send(err);
     }
-    if (result.affectedRows === 0) {
+    if (selectResult.length === 0) {
       return res.status(404).json({ message: 'Checklist not found' });
     }
-    res.status(200).json({ message: 'Checklist deleted successfully' });
+
+    const title = selectResult[0].title;
+
+    const deleteQuery = `
+      DELETE FROM tbl_list_card_checklists
+      WHERE id = ?;
+    `;
+    conn.query(deleteQuery, [id], (err, deleteResult) => {
+      if (err) {
+        return res.status(500).send(err);
+      }
+      if (deleteResult.affectedRows === 0) {
+        return res.status(404).json({ message: 'Checklist not found' });
+      }
+      addUserActivity(req.userId, 14, req.list_card_id, `remove checklist "${title}" from the card`);
+      res.status(200).json({ message: 'Checklist deleted successfully' });
+    });
   });
 };
 
+
 const addCover = (req, res) => {
-  const { list_card_id } = req.params;
-  const { cover ,adder_id } = req.body;
+  const list_card_id = req.list_card_id;
+  const { cover } = req.body;
 
   if (!cover) {
     return res.status(400).json({ message: 'Cover URL is required' });
   }
 
-  // Check if a cover already exists for the given list_card_id
   const checkQuery = `
     SELECT * FROM tbl_list_card_covers WHERE list_card_id = ?;
   `;
@@ -566,18 +773,18 @@ const addCover = (req, res) => {
       return res.status(400).json({ message: 'A cover already exists for this card' });
     }
 
-    // Proceed to insert the new cover if no existing cover is found
     const insertQuery = `
       INSERT INTO tbl_list_card_covers (list_card_id, cover , adder_id ) 
       VALUES (?, ? , ?);
     `;
 
-    const values = [list_card_id, cover, adder_id ];
+    const values = [list_card_id, cover, req.userId];
 
     conn.query(insertQuery, values, (err, result) => {
       if (err) {
         return res.status(500).send(err);
       }
+      addUserActivity(req.userId, 5, list_card_id, `added cover to card`);
       res.status(200).json({ message: 'Cover added successfully' });
     });
   });
@@ -606,6 +813,7 @@ const changeCover = (req, res) => {
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: 'Card not found or cover not updated' });
     }
+    addUserActivity(req.userId, 11, list_card_id, `updated card cover`);
     res.status(200).json({ message: 'Cover updated successfully' });
   });
 };
@@ -627,6 +835,7 @@ const deleteCover = (req, res) => {
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: 'Cover not found' });
     }
+    addUserActivity(req.userId, 17, list_card_id, `removed card cover`);
     res.status(200).json({ message: 'Cover deleted successfully' });
   });
 };
@@ -634,23 +843,23 @@ const deleteCover = (req, res) => {
 
 const addAttachments = (req, res) => {
   const { list_card_id } = req.params;
-  const { file_path } = req.body;
-
-  if (!file_path) {
-    return res.status(400).json({ message: 'File path is required' });
+  const { file_path, name } = req.body;
+  if (!list_card_id || !file_path || !name) {
+    return res.status(400).json({ message: 'list_card_id, file_path, and name are required' });
   }
 
   const query = `
-    INSERT INTO tbl_list_card_attachments (list_card_id, file_path) 
-    VALUES (?, ?);
+    INSERT INTO tbl_list_card_attachments (list_card_id, file_path, adder_id, name) 
+    VALUES (?, ?, ?, ?);
   `;
 
-  const values = [list_card_id, file_path];
-
+  const values = [list_card_id, file_path, req.userId, name];
   conn.query(query, values, (err, result) => {
     if (err) {
-      return res.status(500).send(err);
+      console.error('Error adding attachment:', err);
+      return res.status(500).json({ message: 'Internal Server Error' });
     }
+    addUserActivity(req.userId, 6, list_card_id, `attached a ${name}`);
     res.status(200).json({ message: 'Attachment added successfully' });
   });
 };
@@ -659,37 +868,44 @@ const addAttachments = (req, res) => {
 const deleteAttachments = (req, res) => {
   const { id } = req.params;
 
-  const query = `
-    DELETE FROM tbl_list_card_attachments 
-    WHERE id = ?;
-  `;
-
-  const values = [id];
-
-  conn.query(query, values, (err, result) => {
+  if (!id) {
+    return res.status(400).json({ message: 'Attachment ID is required' });
+  }
+  const queryGetName = `SELECT name FROM tbl_list_card_attachments WHERE id = ?`;
+  conn.query(queryGetName, [id], (err, results) => {
     if (err) {
-      return res.status(500).send(err);
+      console.error('Error retrieving attachment name:', err);
+      return res.status(500).json({ message: 'Internal Server Error' });
     }
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: 'No attachments found for this card' });
-    }
-    res.status(200).json({ message: 'Attachments deleted successfully' });
+    const attachmentName = results.length ? results[0].name : '';
+    const queryDelete = `DELETE FROM tbl_list_card_attachments WHERE id = ?`;
+    conn.query(queryDelete, [id], (err, result) => {
+      if (err) {
+        console.error('Error deleting attachment:', err);
+        return res.status(500).json({ message: 'Internal Server Error' });
+      }
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: 'No attachment found for this ID' });
+      }
+      addUserActivity(req.userId, 18, req.list_card_id, `removed ${attachmentName} file`);
+      res.status(200).json({ message: 'Attachment deleted successfully' });
+    });
   });
 };
 
-
 const deleteCard = (req, res) => {
-  const { ilist_card_id } = req.params;
+  const { list_card_id } = req.params;
 
   const queries = [
-    { sql: 'DELETE FROM tbl_list_card_attachments WHERE list_card_id = ?', values: [ilist_card_id] },
-    { sql: 'DELETE FROM tbl_list_card_checklists WHERE list_card_id = ?', values: [ilist_card_id] },
-    { sql: 'DELETE FROM tbl_list_card_comments WHERE list_card_id = ?', values: [ilist_card_id] },
-    { sql: 'DELETE FROM tbl_list_card_covers WHERE list_card_id = ?', values: [ilist_card_id] },
-    { sql: 'DELETE FROM tbl_list_card_dates WHERE list_card_id = ?', values: [ilist_card_id] },
-    { sql: 'DELETE FROM tbl_list_card_labels WHERE list_card_id = ?', values: [ilist_card_id] },
-    { sql: 'DELETE FROM tbl_list_card_members WHERE list_card_id = ?', values: [ilist_card_id] },
-    { sql: 'DELETE FROM tbl_list_cards WHERE id = ?', values: [ilist_card_id] }
+    { sql: 'DELETE FROM tbl_list_card_attachments WHERE list_card_id = ?', values: [list_card_id] },
+    { sql: 'DELETE FROM tbl_list_card_checklists WHERE list_card_id = ?', values: [list_card_id] },
+    { sql: 'DELETE FROM tbl_list_card_comments WHERE list_card_id = ?', values: [list_card_id] },
+    { sql: 'DELETE FROM tbl_list_card_covers WHERE list_card_id = ?', values: [list_card_id] },
+    { sql: 'DELETE FROM tbl_user_activitys WHERE list_card_id = ?', values: [list_card_id] },
+    { sql: 'DELETE FROM tbl_list_card_dates WHERE list_card_id = ?', values: [list_card_id] },
+    { sql: 'DELETE FROM tbl_list_card_labels WHERE list_card_id = ?', values: [list_card_id] },
+    { sql: 'DELETE FROM tbl_list_card_members WHERE list_card_id = ?', values: [list_card_id] },
+    { sql: 'DELETE FROM tbl_list_cards WHERE id = ?', values: [list_card_id] }
   ];
 
   conn.beginTransaction(err => {
@@ -753,5 +969,5 @@ module.exports = {
   addCardLabel, addDate, addChecklist, deleteChecklist, changeChecklist,
   archiveCard, changeTitle, addComment, changeComment, deleteComment,
   setChecklistDone, setChecklistOnTheWay, changeDate, changeLabel,
-  addCardMember, removeCardMember, removeCardLabel
+  addCardMember, removeCardMember, removeCardLabel, getCardActivity
 };

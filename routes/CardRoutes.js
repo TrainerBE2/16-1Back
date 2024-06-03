@@ -11,6 +11,7 @@ router.get('/:list_card_id/checklist', mid.cardAuth, card.getChecklist); // DONE
 router.get('/:list_card_id/label', mid.cardAuth, card.getLabel); // DONE
 router.get('/:list_card_id/attachments', mid.cardAuth, card.getAttachments); // DONE
 router.get('/:list_card_id/date', mid.cardAuth, card.getDate);// DONE
+router.get('/:list_card_id/activity', mid.cardAuth, card.getCardActivity);// DONE
 
 // POST
 router.post('/:list_card_id/comment', mid.cardEditAuth, card.addComment); // DONE
@@ -24,6 +25,7 @@ router.post('/:list_card_id/attachments', mid.cardEditAuth, card.addAttachments)
 // PUT
 router.put('/:list_card_id/comment/:id', mid.cardCommentEditAuth, card.changeComment); // DONE
 router.put('/:list_card_id/label/:id', mid.cardEditAuth, card.changeLabel);// DONE
+router.put('/:list_card_id/checklist/:id/title', mid.cardEditAuth, card.changeChecklist); // DONE
 router.put('/:list_card_id/checklist/:id/done', mid.cardEditAuth, card.setChecklistDone); // DONE
 router.put('/:list_card_id/checklist/:id/not-yet', mid.cardEditAuth, card.setChecklistOnTheWay); // DONE
 router.put('/:list_card_id/cover', mid.cardEditAuth, card.changeCover); // DONE
@@ -31,6 +33,8 @@ router.put('/:list_card_id/date/:id', mid.cardEditAuth, card.changeDate); // DON
 
 // DELETE
 router.delete('/:list_card_id/date/:id', mid.cardEditAuth, card.deleteDate); // DONE
+router.delete('/:list_card_id/checklist/:id', mid.cardEditAuth, card.deleteChecklist); // DONE
+router.delete('/:list_card_id/label/:id', mid.cardEditAuth, card.removeCardLabel); // DONE
 router.delete('/:list_card_id/comment/:id', mid.cardCommentEditAuth, card.deleteComment); // DONE
 router.delete('/:list_card_id/member/:id', mid.cardEditAuth, card.removeCardMember); // DONE 
 router.delete('/:list_card_id', mid.cardEditAuth, card.deleteCard);  // DONE
