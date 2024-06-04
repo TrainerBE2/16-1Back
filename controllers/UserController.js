@@ -6,37 +6,75 @@ require('dotenv').config();
 const getUserWorkspace = (req, res) => {
   const user_id = req.userId;
   const query = `
-  SELECT 
-  wm.id AS membership_id,
-  wm.workspace_id,
-  wm.role_id,
-  ws.name AS workspace_name,
-  ws.type_id,
-  wt.name AS workspace_type,
-  r.name AS role_name,
-  wm.created_at AS membership_created_at,
-  wm.updated_at AS membership_updated_at
-FROM 
-  tbl_workspace_members wm
-JOIN 
-  tbl_workspaces ws ON wm.workspace_id = ws.id
-JOIN 
-  tbl_roles r ON wm.role_id = r.id
-JOIN 
-  tbl_workspace_types wt ON ws.type_id = wt.id
-JOIN 
-  tbl_users u ON wm.user_id = u.id
-WHERE 
-  wm.user_id = ?;
+    SELECT 
+      wm.id AS membership_id,
+      wm.workspace_id,
+      wm.role_id,
+      ws.name AS workspace_name,
+      ws.type_id,
+      wt.name AS workspace_type,
+      r.name AS role_name,
+      wm.created_at AS membership_created_at,
+      wm.updated_at AS membership_updated_at,
+      (SELECT COUNT(*) FROM tbl_workspace_members WHERE workspace_id = wm.workspace_id) AS member_count
+    FROM 
+      tbl_workspace_members wm
+    JOIN 
+      tbl_workspaces ws ON wm.workspace_id = ws.id
+    JOIN 
+      tbl_roles r ON wm.role_id = r.id
+    JOIN 
+      tbl_workspace_types wt ON ws.type_id = wt.id
+    JOIN 
+      tbl_users u ON wm.user_id = u.id
+    WHERE 
+      wm.user_id = ?;
   `;
 
   conn.query(query, [user_id], (err, results) => {
     if (err) {
       return res.status(500).send(err);
     }
-    res.status(200).json(results);
+
+    if (results.length === 0) {
+      return res.status(200).json([]);
+    }
+    const promises = results.map(workspace => {
+      const recentBoardQuery = `
+        SELECT 
+          b.*,
+          CASE WHEN sb.board_id IS NOT NULL THEN 1 ELSE 0 END AS is_starred
+        FROM 
+          tbl_recents_boards rb
+        JOIN 
+          tbl_boards b ON rb.board_id = b.id
+        LEFT JOIN 
+          tbl_starred_boards sb ON b.id = sb.board_id AND sb.user_id = ?
+        WHERE 
+          b.workspace_id = ? AND rb.user_id = ?
+        ORDER BY 
+          rb.updated_at DESC
+        LIMIT 3;
+      `;
+
+      return new Promise((resolve, reject) => {
+        conn.query(recentBoardQuery, [user_id, workspace.workspace_id, user_id], (err, boardResults) => {
+          if (err) {
+            return reject(err);
+          }
+
+          workspace.recent_boards = boardResults;
+          resolve(workspace);
+        });
+      });
+    });
+
+    Promise.all(promises)
+      .then(workspaces => res.status(200).json(workspaces))
+      .catch(error => res.status(500).send(error));
   });
 };
+
 
 const getUserBoard = (req, res) => {
   const user_id = req.userId;
