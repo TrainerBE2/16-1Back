@@ -5,6 +5,7 @@ const router = express.Router();
 
 // GET
 router.get('/', mid.userAuth, user.getUserById); // DONE
+router.get('/all', mid.userAuth, user.getAllUser); // DONE
 router.get('/workspace', mid.userAuth, user.getUserWorkspace); // DONE
 router.get('/board', mid.userAuth, user.getUserBoard); // DONE
 router.get('/invite', mid.userAuth, user.getInvite); // DONE
@@ -25,6 +26,6 @@ router.put('/password', mid.userAuth, user.changePassword); // DONE
 
 // DELETE
 router.delete('/notification', mid.userAuth, user.deleteUserNotification); // DONE
-router.delete('/star/:star_id', mid.userAuth, user.removeStar); // DONE
+router.delete('/star/:board_id', mid.userAuth, user.removeStar); // DONE
 router.delete('/refuse/:invitation_id', mid.userAuth ,user.refuseInvitation);// DONE
 module.exports = router;

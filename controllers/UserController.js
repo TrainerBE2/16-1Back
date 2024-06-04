@@ -3,6 +3,19 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
+const getAllUser = (req, res) => {
+  const query = `
+    SELECT id, email,username,bio, created_at,updated_at FROM tbl_users;
+  `;
+
+  conn.query(query, (err, results) => {
+    if (err) {
+      return res.status(500).send(err);
+    }
+    res.status(200).json(results);
+  });
+};
+
 const getUserWorkspace = (req, res) => {
   const user_id = req.userId;
   const query = `
@@ -248,7 +261,7 @@ const loginUser = (req, res) => {
 
 const getUserNotification = (req, res) => {
   const query = `SELECT * FROM tbl_user_notifications WHERE user_id = ?`;
-  
+
   conn.query(query, [req.userId], (err, result) => {
     if (err) {
       return res.status(500).json({ error: 'Internal Server Error' });
@@ -259,17 +272,17 @@ const getUserNotification = (req, res) => {
 
 const deleteUserNotification = (req, res) => {
   const query = `DELETE FROM tbl_user_notifications WHERE user_id = ?`;
-  
+
   conn.query(query, [req.userId], (err, result) => {
     if (err) {
       console.error('Database query error:', err);
       return res.status(500).json({ error: 'Internal Server Error' });
     }
-    
+
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: 'No notifications found for the given user.' });
     }
-    
+
     res.status(200).json({ message: 'Notifications deleted successfully.' });
   });
 };
@@ -297,7 +310,7 @@ const getUserActivity = (req, res) => {
     ua.created_at DESC;
   `;
 
-  conn.query(query, req.userId, (err, result) => { 
+  conn.query(query, req.userId, (err, result) => {
     if (err) {
       return res.status(500).send(err);
     }
@@ -311,7 +324,7 @@ const addUserActivity = (user_id, action_id, list_card_id, detailed) => {
     INSERT INTO tbl_user_activitys (id, user_id, action_id, list_card_id, detailed)
     VALUES (NULL, ?, ?, ?, ?);
   `;
-  
+
   conn.query(sql, [user_id, action_id, list_card_id, detailed], (err, results) => {
     if (err) {
       console.error('Error inserting user activity:', err);
@@ -385,14 +398,14 @@ const createUser = async (req, res) => {
 };
 
 const removeStar = (req, res) => {
-  const { star_id } = req.params;
+  const { board_id } = req.params;
 
   const query = `
     DELETE FROM tbl_starred_boards
-    WHERE id = ?;
+    WHERE user_id = ? AND board_id = ?
   `;
 
-  conn.query(query, [star_id], (err, result) => {
+  conn.query(query, [req.userId, board_id], (err, result) => {
     if (err) {
       return res.status(500).send(err);
     }
@@ -550,4 +563,5 @@ module.exports = {
   changeBio,
   refuseInvitation,
   addUserActivity,
+  getAllUser
 };
