@@ -1,5 +1,4 @@
 const db = require('../library/conn');
-const { addUserNotification } = require('../controllers/UserController');
 
 const createWorkspace = (req, res) => {
   const { name, type_id, description } = req.body;
@@ -30,11 +29,34 @@ const createWorkspace = (req, res) => {
   });
 };
 
+const leaveWorkspace = (req, res) => {
+  const { workspace_id } = req.params;
+  const query = 'DELETE FROM tbl_workspace_members WHERE workspace_id = ? AND user_id = ?';
+  db.query(query, [workspace_id, req.userId], (err) => {
+    if (err) {
+      return res.status(500).send(err);
+    }
+
+    res.status(200).json({ message: 'Successfully left the workspace' });
+  });
+};
+
+const kickMember = (req, res) => {
+  const { id } = req.params;
+  const query = 'DELETE FROM `tbl_workspace_members` WHERE `id` = ?';
+  db.query(query, [id], (err) => {
+    if (err) {
+      return res.status(500).send(err);
+    }
+
+    res.status(200).json({ message: 'Member successfully kicked from the workspace' });
+  });
+};
 
 const getWorkspaceById = (req, res) => {
   const { workspace_id } = req.params;
 
-  const query = `
+  const workspaceQuery = `
     SELECT 
       w.id,
       w.name AS workspace_name,
@@ -52,16 +74,38 @@ const getWorkspaceById = (req, res) => {
       w.id = ?;
   `;
 
-  db.query(query, [workspace_id], (err, results) => {
+  const roleQuery = `
+    SELECT 
+      roles.name AS user_role_on_workspace
+    FROM 
+      tbl_workspace_members AS members
+    JOIN 
+      tbl_workspace_roles AS roles ON members.role_id = roles.id
+    WHERE 
+      members.workspace_id = ? AND members.user_id = ?;
+  `;
+
+  db.query(workspaceQuery, [workspace_id], (err, workspaceResults) => {
     if (err) {
       return res.status(500).send(err);
     }
-    if (results.length === 0) {
+    if (workspaceResults.length === 0) {
       return res.status(404).send({ message: 'Workspace not found' });
     }
-    res.status(200).json(results[0]);
+
+    db.query(roleQuery, [workspace_id, req.userId], (err, roleResults) => {
+      if (err) {
+        return res.status(500).send(err);
+      }
+
+      const workspace = workspaceResults[0];
+      workspace.user_role_on_workspace = roleResults.length > 0 ? roleResults[0].user_role_on_workspace : null;
+
+      res.status(200).json(workspace);
+    });
   });
 };
+
 
 
 const getBoard = (req, res) => {
@@ -466,5 +510,7 @@ module.exports = {
   changeDescription,
   promoteMember,
   getWorkspaceType,
-  changeName
+  changeName,
+  leaveWorkspace,
+  kickMember
 };
