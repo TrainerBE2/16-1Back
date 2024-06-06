@@ -5,7 +5,7 @@ Project Management APP API inspired by Trello, using MySQL and Express.
 </p>
 
 <p align="center">
-    <img src="https://media.tenor.com/p8Ko6cQs1_AAAAAi/8bit-dance.gif" alt="Arisu Joget" width="200">
+    <img src="https://media1.tenor.com/m/DaOyR7Gen30AAAAd/ktiky.gif" alt="Wife" width="400">
 </p>
 
 ### Installation
@@ -29,10 +29,12 @@ To set up the project locally, follow these steps:
     ```
     > Edit the `.env` file to include your specific environment variables, such as database connection details.
 
-4. **Run Migrations and Seed Database**:
+4. **Run Migrations**:
     ```sh
     node library/database -migrate
-    node library/database -seed
+    node library/database -key
+    node library/database -extra
+    node library/database -constraint
     ```
 
 5. **Start the Server**:
