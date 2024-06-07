@@ -2,9 +2,53 @@ const conn = require('../library/conn');
 
 const seedQueries = [
 
+  `INSERT INTO tbl_roles (id, name) VALUES
+(1, 'admin'),
+(2, 'client');`
+  ,
+  `INSERT INTO tbl_users (id, email, password, username, bio, created_at, updated_at) VALUES
+(1, 'contoh@skibidi.com', '$2b$10$oXa/xBOcSsd1OPfqzJ7ZOOL6sG1klP/7Tw5vWjEbmFqPVZ5saH8s6', 'baguswijaksono', 'Kid namaed bagus', '2024-06-03 09:02:35', '2024-06-03 12:34:13');`
+  ,
+  `INSERT INTO tbl_system_roles (id, user_id, role_id) VALUES
+(1, 1, 1);
+`,
+  `INSERT INTO tbl_workspace_types (id, name, created_at, updated_at) VALUES
+(1, 'Small Business', '2024-05-23 03:38:41', '2024-05-23 03:38:41'),
+(2, 'Engineering-IT', '2024-05-23 03:38:41', '2024-05-23 03:38:41'),
+(3, 'Operations', '2024-05-23 03:38:41', '2024-05-23 03:38:41'),
+(4, 'Marketing', '2024-05-23 03:38:41', '2024-05-23 03:38:41'),
+(5, 'Human Resources', '2024-05-23 03:38:41', '2024-05-23 03:38:41'),
+(6, 'Eductaion', '2024-05-23 03:38:41', '2024-05-23 03:38:41'),
+(7, 'Other', '2024-05-23 03:38:41', '2024-05-23 03:38:41');`
+  ,
+  `INSERT INTO tbl_workspace_roles (id, name, created_at, updated_at) VALUES
+(1, 'owner', '2024-05-23 03:38:41', '2024-05-23 03:38:41'),
+(2, 'admin', '2024-05-23 03:38:41', '2024-05-23 03:38:41'),
+(3, 'client', '2024-05-23 03:38:41', '2024-05-23 03:38:41');`
+  ,
+  `INSERT INTO tbl_backgrounds (id, name, created_at, updated_at) VALUES
+(1, 'backgrounds 1', '2024-06-03 09:19:25', '2024-06-03 09:19:25');`
+  ,
+  `INSERT INTO tbl_board_privileges (id, name, created_at, updated_at) VALUES
+(1, 'see', '2024-06-03 10:06:08', '2024-06-03 10:06:34'),
+(2, 'edit', '2024-06-03 10:06:28', '2024-06-03 10:06:28'),
+(3, 'delete', '2024-06-03 10:07:19', '2024-06-03 10:07:19');`
+  ,
+  `INSERT INTO tbl_board_visibilitys (id, name, created_at, updated_at) VALUES
+(1, 'private', '2024-06-03 09:17:50', '2024-06-03 09:18:01'),
+(2, 'workspace', '2024-06-03 09:18:10', '2024-06-03 09:18:10');`
+  ,
+  `INSERT INTO tbl_list_card_archived_status (id, name, created_at, updated_at) VALUES
+(1, 'no', '2024-06-03 10:34:27', '2024-06-03 10:34:27'),
+(2, 'yes', '2024-06-03 10:34:34', '2024-06-03 10:34:34');`
+  ,
+  `INSERT INTO tbl_list_card_status (id, name, created_at, updated_at) VALUES
+(1, 'not done', '2024-06-03 08:05:38', '2024-06-03 08:05:44'),
+(2, 'done', '2024-06-03 08:05:19', '2024-06-03 08:05:31');`
+
 ];
 
-const ConstraintQueries = [
+const constraintQueries = [
   `ALTER TABLE tbl_boards
   ADD CONSTRAINT tbl_boards_ibfk_1 FOREIGN KEY (owner_id) REFERENCES tbl_users (id),
   ADD CONSTRAINT tbl_boards_ibfk_2 FOREIGN KEY (background) REFERENCES tbl_backgrounds (id),
@@ -89,7 +133,7 @@ const ConstraintQueries = [
 
 ];
 
-const ExtraQueries = [
+const extraQueries = [
 
   `ALTER TABLE tbl_backgrounds
   MODIFY id int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=1;`
@@ -575,123 +619,75 @@ function parseArguments(args) {
 
 const args = process.argv.slice(2);
 const options = parseArguments(args);
+const QUERY_TYPES = {
+  MIGRATION: 'Migration',
+  ADD_KEY: 'Add Key',
+  ADD_EXTRA: 'Add Extra',
+  ADD_CONSTRAINT: 'Add Constraint',
+  SEED_DATABASE: 'Seed Database'
+};
 
-function executeCreateTableQueries(queries, queryType) {
+function executeQuery(conn, query, queryType, tableNameExtractor) {
   return new Promise((resolve, reject) => {
-    queries.forEach((query, index) => {
-      conn.query(query, (err) => {
-        if (err) {
-          console.error(`Error running ${queryType} query:`, err);
-          return reject(err);
-        }
-        const tableNameMatch = query.match(/CREATE TABLE (\w+)/i);
-        const tableName = tableNameMatch ? tableNameMatch[1] : 'Unknown table';
-        console.log(`${queryType} query executed successfully for table: ${tableName}`);
-        if (index === queries.length - 1) {
-          resolve();
-        }
-      });
+    conn.query(query, (err) => {
+      if (err) {
+        console.error(`Error running ${queryType} query:`, err);
+        return reject(err);
+      }
+      const tableNameMatch = query.match(tableNameExtractor);
+      const tableName = tableNameMatch ? tableNameMatch[1] : 'Unknown table';
+      console.log(`${queryType} query executed successfully for table: ${tableName}`);
+      resolve();
     });
   });
 }
 
-function executeAddExtraQueries(queries, queryType) {
-  return new Promise((resolve, reject) => {
-    queries.forEach((query, index) => {
-      conn.query(query, (err) => {
-        if (err) {
-          console.error(`Error running ${queryType} query:`, err);
-          return reject(err);
-        }
-        const tableNameMatch = query.match(/ALTER TABLE (\w+)/i);
-        const tableName = tableNameMatch ? tableNameMatch[1] : 'Unknown table';
-        console.log(`${queryType} query executed successfully for table: ${tableName}`);
-        if (index === queries.length - 1) {
-          resolve();
-        }
-      });
-    });
-  });
+async function executeQueries(conn, queries, queryType, tableNameExtractor) {
+  for (let index = 0; index < queries.length; index++) {
+    const query = queries[index];
+    try {
+      await executeQuery(conn, query, queryType, tableNameExtractor);
+    } catch (err) {
+      console.error(`Failed to execute ${queryType} query at index ${index}:`, err);
+      throw err;
+    }
+  }
 }
 
-function executeAddConstraint(queries, queryType) {
-  return new Promise((resolve, reject) => {
-    queries.forEach((query, index) => {
-      conn.query(query, (err) => {
-        if (err) {
-          console.error(`Error running ${queryType} query:`, err);
-          return reject(err);
-        }
-        const tableNameMatch = query.match(/ALTER TABLE (\w+)/i);
-        const tableName = tableNameMatch ? tableNameMatch[1] : 'Unknown table';
-        console.log(`${queryType} query executed successfully for table: ${tableName}`);
-        if (index === queries.length - 1) {
-          resolve();
-        }
-      });
-    });
-  });
+async function executeMigrations(conn) {
+  try {
+    await executeQueries(conn, migrationQueries, QUERY_TYPES.MIGRATION, /CREATE TABLE (\w+)/i);
+    await executeQueries(conn, keyQueries, QUERY_TYPES.ADD_KEY, /ALTER TABLE (\w+)/i);
+    await executeQueries(conn, extraQueries, QUERY_TYPES.ADD_EXTRA, /ALTER TABLE (\w+)/i);
+    await executeQueries(conn, constraintQueries, QUERY_TYPES.ADD_CONSTRAINT, /ALTER TABLE (\w+)/i);
+  } catch (err) {
+    console.error('Migration failed:', err);
+  }
 }
 
-function executeAddKeyQueries(queries, queryType) {
-  return new Promise((resolve, reject) => {
-    queries.forEach((query, index) => {
-      conn.query(query, (err) => {
-        if (err) {
-          console.error(`Error running ${queryType} query:`, err);
-          return reject(err);
-        }
-        if (queryType === 'ALTER TABLE') {
-          const keyMatch = query.match(/ADD (?:PRIMARY KEY|KEY) (\w+)/i);
-          const keyName = keyMatch ? keyMatch[1] : 'Unknown key';
-          console.log(`Key "${keyName}" added successfully.`);
-        }
-        const tableNameMatch = query.match(/ALTER TABLE (\w+)/i);
-        const tableName = tableNameMatch ? tableNameMatch[1] : 'Unknown table';
-        console.log(`${queryType} query executed successfully for table: ${tableName}`);
-        if (index === queries.length - 1) {
-          resolve();
-        }
-      });
-    });
-  });
+async function executeSeedDatabase(conn) {
+  try {
+    await executeQueries(conn, seedQueries, QUERY_TYPES.SEED_DATABASE, /INSERT INTO (\w+)/i);
+  } catch (err) {
+    console.error('Seed Database failed:', err);
+  }
 }
 
 async function run() {
   if (options['-migrate']) {
-    try {
-      await executeCreateTableQueries(migrationQueries, 'Migration');
-    } catch (err) {
-      console.error('Migration failed:', err);
-    }
-  } else if (options['-key']) {
-    try {
-      await executeAddKeyQueries(keyQueries, 'Add Key');
-    } catch (err) {
-      console.error('Add Key failed:', err);
-    }
-  } else if (options['-extra']) {
-    try {
-      await executeAddExtraQueries(ExtraQueries, 'Add Extra');
-    } catch (err) {
-      console.error('Add Extra failed:', err);
-    }
-  } else if (options['-constraint']) {
-    try {
-      await executeAddConstraint(ConstraintQueries, 'Add Constraint');
-    } catch (err) {
-      console.error('Add Constraint failed:', err);
-    }
+    await executeMigrations(conn);
+  } else if (options['-seed']) {
+    await executeSeedDatabase(conn);
   } else {
     console.log('No valid option provided. Use -migrate or -seed.');
   }
 
   conn.end((err) => {
     if (err) {
-      console.error('Error closing MySQL conn:', err);
+      console.error('Error closing MySQL connection:', err);
       return;
     }
-    console.log('MySQL conn closed');
+    console.log('MySQL connection closed');
   });
 }
 
