@@ -32,9 +32,7 @@ To set up the project locally, follow these steps:
 4. **Run Migrations**:
     ```sh
     node library/database -migrate
-    node library/database -key
-    node library/database -extra
-    node library/database -constraint
+    node library/database -seed
     ```
 
 5. **Start the Server**:
