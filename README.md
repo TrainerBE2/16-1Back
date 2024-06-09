@@ -43,5 +43,5 @@ To set up the project locally, follow these steps:
 
 
 ### Documentation
-
-The documentation is too extensive to fit into a single README file, You can find it [here](https://documenter.getpostman.com/view/35096375/2sA3Qqgsjs).
+For database design, you can find it [here](https://dbdiagram.io/d/Project-Manage-App-BE2FE3-6609870b37b7e33fd7262a90).
+The documentation is too extensive to fit into a single README file. You can find the API Documentation [here](https://documenter.getpostman.com/view/35096375/2sA3Qqgsjs).
