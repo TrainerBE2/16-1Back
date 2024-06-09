@@ -35,7 +35,7 @@ const getUserWorkspace = (req, res) => {
     JOIN 
       tbl_workspaces ws ON wm.workspace_id = ws.id
     JOIN 
-      tbl_roles r ON wm.role_id = r.id
+      tbl_workspace_roles r ON wm.role_id = r.id
     JOIN 
       tbl_workspace_types wt ON ws.type_id = wt.id
     JOIN 

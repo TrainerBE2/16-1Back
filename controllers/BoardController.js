@@ -98,7 +98,7 @@ const getBoardById = (req, res) => {
           if (err) {
             return res.status(500).send(err);
           }
-          if (countResult[0].count > MAX_RECENT_BOARDS) {
+          if (countResult[0].count > 7) {
             conn.query(deleteOldestQuery, [user_id], (err, deleteResult) => {
               if (err) {
                 return res.status(500).send(err);
@@ -210,6 +210,31 @@ const updateBoard = (req, res) => {
     res.status(200).send(`Board updated with ID: ${board_id}`);
   });
 };
+
+const addCollaborator = (req, res) => {
+  const { board_id } = req.params;
+  const { user_id, privilege_id } = req.body;
+
+  const checkQuery = 'SELECT COUNT(*) AS count FROM `tbl_collaborators` WHERE `user_id` = ? AND `board_id` = ?;';
+  conn.query(checkQuery, [user_id, board_id], (err, result) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    if (result[0].count > 0) {
+      return res.status(400).json({ error: `User ${user_id} is already a collaborator for board ${board_id}` });
+    }
+
+    const insertQuery = 'INSERT INTO `tbl_collaborators` (`user_id`, `board_id`, `privilege_id`) VALUES (?, ?, ?);';
+    conn.query(insertQuery, [user_id, board_id, privilege_id], (err) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      res.status(200).json({ message: `Successfully added collaborator to board ID: ${board_id}` });
+    });
+  });
+};
+
 
 const deleteBoard = (req, res) => {
   const { board_id } = req.params;
@@ -371,5 +396,6 @@ module.exports = {
   getBoardVisibility,
   getBoardPrivilege,
   changeBoardTitle,
-  GrantCollaboratorEdit
+  GrantCollaboratorEdit,
+  addCollaborator
 };

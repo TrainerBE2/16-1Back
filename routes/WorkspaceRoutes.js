@@ -23,7 +23,6 @@ router.put('/:workspace_id/member/:id/promote', mid.workspaceAdminAuth, workspac
 
 // DELETE
 router.delete('/:workspace_id', mid.workspaceAdminAuth ,workspace.deleteWorkspace);  // DONE
-router.delete('/:workspace_id/leave', mid.workspaceAuth, workspace.leaveWorkspace); // DONE
-router.delete('/:workspace_id/member/:id/kick', mid.workspaceAdminAuth, workspace.kickMember); // DONE
+router.delete('/:workspace_id/member/:id/kick', mid.KickLeaveworkspaceAuth, workspace.kickMemberorLeave); // DONE
 
 module.exports = router;

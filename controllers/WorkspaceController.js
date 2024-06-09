@@ -29,19 +29,7 @@ const createWorkspace = (req, res) => {
   });
 };
 
-const leaveWorkspace = (req, res) => {
-  const { workspace_id } = req.params;
-  const query = 'DELETE FROM tbl_workspace_members WHERE workspace_id = ? AND user_id = ?';
-  db.query(query, [workspace_id, req.userId], (err) => {
-    if (err) {
-      return res.status(500).send(err);
-    }
-
-    res.status(200).json({ message: 'Successfully left the workspace' });
-  });
-};
-
-const kickMember = (req, res) => {
+const kickMemberorLeave = (req, res) => {
   const { id } = req.params;
   const query = 'DELETE FROM `tbl_workspace_members` WHERE `id` = ?';
   db.query(query, [id], (err) => {
@@ -106,8 +94,6 @@ const getWorkspaceById = (req, res) => {
   });
 };
 
-
-
 const getBoard = (req, res) => {
   const { workspace_id } = req.params;
   const query = `
@@ -140,11 +126,14 @@ const getBoard = (req, res) => {
       tbl_workspaces ws ON b.workspace_id = ws.id
     LEFT JOIN 
       tbl_starred_boards sb ON b.id = sb.board_id AND sb.user_id = ?
+    LEFT JOIN
+      tbl_collaborators c ON b.id = c.board_id AND c.user_id = ? AND c.privilege_id IN (1, 2, 3)
     WHERE 
-      b.workspace_id = ? AND b.visibility_id = 2;
+      b.workspace_id = ? 
+      AND (b.visibility_id = 2 OR c.user_id IS NOT NULL);
   `;
 
-  db.query(query, [req.userId, workspace_id], (err, results) => {
+  db.query(query, [req.userId, req.userId, workspace_id], (err, results) => {
     if (err) {
       return res.status(500).send(err);
     }
@@ -418,7 +407,7 @@ const createBoard = (req, res) => {
 
   db.query(query1, [req.userId, board_title, background, visibility, workspace_id], (err, result) => {
     if (err) {
-      return res.status(500).send(err);
+      return res.status(500).json({ error: 'Database error while creating board', details: err });
     }
 
     const boardId = result.insertId;
@@ -430,10 +419,10 @@ const createBoard = (req, res) => {
 
     db.query(query2, [req.userId, boardId, 3], (err, result) => {
       if (err) {
-        return res.status(500).send(err);
+        return res.status(500).json({ error: 'Database error while adding collaborator', details: err });
       }
 
-      res.status(201).send(`Board added with ID: ${boardId}`);
+      res.status(201).json({ message: 'Board created successfully', boardId: boardId });
     });
   });
 };
@@ -511,6 +500,5 @@ module.exports = {
   promoteMember,
   getWorkspaceType,
   changeName,
-  leaveWorkspace,
-  kickMember
+  kickMemberorLeave
 };
